@@ -1,0 +1,1832 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Drone Mission Review</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
+<style>
+  :root {
+    --bg: #0f172a;
+    --panel: #1e293b;
+    --panel-2: #334155;
+    --panel-3: #475569;
+    --text: #e2e8f0;
+    --muted: #94a3b8;
+    --accent: #38bdf8;
+    --danger: #f87171;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
+  #app { display: grid; grid-template-columns: 360px 1fr; height: 100vh; }
+  #sidebar { background: var(--panel); border-right: 1px solid var(--panel-2); display: flex; flex-direction: column; overflow: hidden; }
+  #header { padding: 14px 16px; border-bottom: 1px solid var(--panel-2); }
+  #header h1 { margin: 0; font-size: 17px; color: var(--accent); }
+  #header p { margin: 4px 0 0; font-size: 12px; color: var(--muted); }
+  #header .tip { margin-top: 6px; color: var(--accent); font-size: 11px; }
+
+  .input-row { display: flex; gap: 6px; padding: 10px 12px 6px; }
+  .input-row label {
+    flex: 1; text-align: center; font-size: 12px; padding: 7px 8px;
+    background: var(--panel-2); border-radius: 4px; cursor: pointer; color: var(--text);
+  }
+  .input-row label:hover { background: var(--panel-3); }
+  .input-row input { display: none; }
+
+  #dropzone {
+    margin: 6px 12px 8px;
+    border: 2px dashed var(--panel-2);
+    border-radius: 8px;
+    padding: 14px;
+    text-align: center;
+    font-size: 12px;
+    color: var(--muted);
+    transition: all 0.15s;
+  }
+  #dropzone.drag { border-color: var(--accent); background: rgba(56,189,248,0.08); color: var(--text); }
+  #stats { padding: 0 16px 8px; font-size: 12px; color: var(--muted); }
+  #stats b { color: var(--text); }
+
+  #projectList { flex: 1; overflow-y: auto; padding: 4px 8px 8px; }
+  .project {
+    margin-bottom: 8px; border-radius: 6px; overflow: hidden;
+    background: rgba(255,255,255,0.02);
+  }
+  .project-header {
+    display: flex; align-items: center; gap: 8px; padding: 8px 10px;
+    cursor: pointer; user-select: none; font-size: 13px;
+  }
+  .project-header:hover { background: var(--panel-2); }
+  .project-swatch { width: 12px; height: 12px; border-radius: 3px; flex-shrink: 0; }
+  .project-name { flex: 1; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .project-count { font-size: 11px; color: var(--muted); }
+  .project-toggle {
+    background: none; border: none; color: var(--muted); cursor: pointer;
+    font-size: 14px; padding: 0 4px; line-height: 1; flex: none;
+  }
+  .project-toggle.off { opacity: 0.3; }
+  .project-photos { display: none; padding: 0 6px 6px; }
+  .project.expanded .project-photos { display: block; }
+  .project .chevron { transition: transform 0.15s; }
+  .project.expanded .chevron { transform: rotate(90deg); }
+
+  .photo-item {
+    display: flex; gap: 8px; padding: 5px; border-radius: 4px;
+    cursor: pointer; align-items: center; margin-bottom: 2px;
+    border: 1px solid transparent;
+  }
+  .photo-item:hover { background: var(--panel-2); }
+  .photo-item.active { background: var(--panel-2); border-color: var(--accent); }
+  .photo-item img { width: 36px; height: 36px; object-fit: cover; border-radius: 3px; background: #000; }
+  .photo-item .meta { flex: 1; min-width: 0; }
+  .photo-item .meta .name { font-size: 11px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .photo-item .meta .coords { font-size: 9px; color: var(--muted); font-family: ui-monospace, monospace; }
+  #map { width: 100%; height: 100%; }
+  .leaflet-popup-content { font-size: 12px; }
+  .leaflet-popup-content img { width: 220px; display: block; border-radius: 4px; margin-bottom: 6px; }
+  .leaflet-popup-content .pop-meta { color: #475569; font-family: ui-monospace, monospace; font-size: 11px; }
+  .leaflet-popup-content .pop-name { font-weight: 600; margin-bottom: 4px; }
+  .empty { padding: 30px 16px; text-align: center; color: var(--muted); font-size: 12px; }
+
+  #toolbar { padding: 8px 12px; border-top: 1px solid var(--panel-2); display: flex; gap: 6px; flex-wrap: wrap; }
+  button {
+    background: var(--panel-2); color: var(--text); border: none; padding: 6px 10px;
+    border-radius: 4px; cursor: pointer; font-size: 12px; flex: 1 1 45%;
+  }
+  button:hover { background: var(--panel-3); }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  /* Destructive actions get a distinct red tint so they stand out in the
+     crowded toolbar — easy to find, hard to hit accidentally. */
+  button.danger {
+    background: rgba(248, 113, 113, 0.18);
+    color: #fecaca;
+    border: 1px solid rgba(248, 113, 113, 0.45);
+  }
+  button.danger:hover:not(:disabled) {
+    background: rgba(248, 113, 113, 0.32);
+    color: #fff;
+    border-color: rgba(248, 113, 113, 0.7);
+  }
+  .badge-gps { padding: 1px 4px; border-radius: 3px; font-size: 8px; font-weight: 700; color: #000; }
+  .badge-nogps { background: var(--danger); color: #000; padding: 1px 4px; border-radius: 3px; font-size: 8px; font-weight: 700; }
+
+  .leaflet-marker-icon.dot {
+    border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 0 1px rgba(0,0,0,0.4);
+  }
+  .marker-arrow svg { display: block; filter: drop-shadow(0 0 1px rgba(0,0,0,0.6)); }
+
+  /* Search / filter row */
+  #filter-row { padding: 4px 12px 0; display: flex; gap: 6px; align-items: center; }
+  #searchInput {
+    flex: 1; background: var(--panel-2); color: var(--text); border: 1px solid var(--panel-3);
+    border-radius: 4px; padding: 5px 8px; font-size: 12px; outline: none;
+  }
+  #searchInput::placeholder { color: var(--muted); }
+  #filter-row label { font-size: 11px; color: var(--muted); display: flex; align-items: center; gap: 4px; }
+
+  /* Flight stats panel */
+  #stats-panel {
+    margin: 6px 12px 0; background: rgba(255,255,255,0.03); border-radius: 6px;
+    font-size: 12px; overflow: hidden;
+  }
+  #stats-panel header {
+    padding: 6px 10px; cursor: pointer; user-select: none; display: flex; align-items: center; gap: 6px;
+    color: var(--muted);
+  }
+  #stats-panel header:hover { background: var(--panel-2); color: var(--text); }
+  #stats-panel.collapsed .stats-body { display: none; }
+  #stats-panel .chev { transition: transform .15s; }
+  #stats-panel:not(.collapsed) .chev { transform: rotate(90deg); }
+  #stats-panel .stats-body { padding: 0 10px 8px; }
+  #stats-panel .stat-row {
+    display: flex; justify-content: space-between; padding: 2px 0;
+    border-top: 1px dashed var(--panel-2);
+  }
+  #stats-panel .stat-row:first-child { border-top: 0; }
+  #stats-panel .stat-name { color: var(--muted); }
+  #stats-panel .stat-val { color: var(--text); font-family: ui-monospace, monospace; }
+  #stats-panel .project-sub {
+    margin-top: 6px; padding-top: 4px; border-top: 1px solid var(--panel-2);
+    color: var(--text); font-weight: 600;
+  }
+
+  /* Lightbox */
+  #lightbox {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.88); z-index: 9999;
+    display: none; align-items: center; justify-content: center; padding: 30px;
+  }
+  #lightbox.open { display: flex; }
+  #lightbox img { max-width: 100%; max-height: 100%; box-shadow: 0 6px 30px rgba(0,0,0,0.7); border-radius: 4px; }
+  #lightbox .lb-info {
+    position: absolute; bottom: 12px; left: 12px; right: 12px; text-align: center;
+    color: #e2e8f0; font-size: 12px; font-family: ui-monospace, monospace;
+  }
+  #lightbox .lb-close {
+    position: absolute; top: 12px; right: 16px; color: #e2e8f0; font-size: 28px;
+    cursor: pointer; line-height: 1; background: none; border: 0; padding: 4px 8px;
+  }
+  .leaflet-popup-content img { cursor: zoom-in; }
+
+  /* Timeline bar */
+  #timeline {
+    position: absolute; left: 50%; transform: translateX(-50%);
+    bottom: 18px; width: min(720px, 92vw);
+    background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(4px);
+    border: 1px solid var(--panel-2); border-radius: 8px;
+    padding: 6px 10px; display: flex; gap: 8px; align-items: center;
+    z-index: 1000; box-shadow: 0 4px 16px rgba(0,0,0,0.4); color: var(--text);
+    font-size: 12px;
+  }
+  #timeline.hidden { display: none; }
+  #timeline button {
+    flex: none; background: var(--panel-2); color: var(--text); border: 0;
+    border-radius: 4px; padding: 4px 8px; cursor: pointer; font-size: 12px; min-width: 32px;
+  }
+  #timeline button:hover { background: var(--panel-3); }
+  #timeline input[type=range] { flex: 1; accent-color: var(--accent); }
+  #timeline .tl-label { font-family: ui-monospace, monospace; color: var(--muted); min-width: 140px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="sidebar">
+    <div id="header">
+      <h1>Drone Mission Review</h1>
+      <p>Drop photos or a folder to map them by GPS, grouped into projects with flight paths.</p>
+      <p class="tip">Switch basemap (Streets / Satellite / Topo) in the top-right of the map.</p>
+    </div>
+
+    <div class="input-row">
+      <label for="fileInput">Choose photos
+        <input id="fileInput" type="file" accept="image/jpeg,image/jpg,image/tiff" multiple />
+      </label>
+      <label for="dirInput">Choose folder
+        <input id="dirInput" type="file" webkitdirectory multiple />
+      </label>
+      <label for="indexInput">Load index.json
+        <input id="indexInput" type="file" accept="application/json,.json" />
+      </label>
+    </div>
+
+    <div id="dropzone">📁 …or drop photos/folders here</div>
+    <div id="stats">No photos loaded.</div>
+
+    <div id="filter-row">
+      <input id="searchInput" type="text" placeholder="Filter by filename…" />
+      <label title="Only show photos with GPS coordinates">
+        <input id="gpsOnlyChk" type="checkbox" /> GPS only
+      </label>
+    </div>
+
+    <div id="stats-panel" class="collapsed">
+      <header><span class="chev">▶</span><span>Flight statistics</span></header>
+      <div class="stats-body"><div style="color:var(--muted)">Load photos to see stats.</div></div>
+    </div>
+
+    <div id="projectList"><div class="empty">Projects appear here once loaded.</div></div>
+
+    <div id="toolbar">
+      <button id="fitBtn" disabled>Fit to photos</button>
+      <button id="pathsBtn" disabled>Hide paths</button>
+      <button id="footprintBtn">Hide footprints</button>
+      <button id="allFootBtn" disabled>Show all footprints</button>
+      <button id="missionBtn" disabled title="Auto-group photos into missions using time-gap clustering">Detect missions</button>
+      <button id="sensorBtn" disabled title="Group photos by sensor type: RGB / Multispectral / Thermal">Group by sensor</button>
+      <button id="restoreFolderBtn" disabled title="Restore original folder-based grouping">Restore folders</button>
+      <button id="refineBtn" disabled title="Fetch terrain elevation from OpenTopoData to correct footprint heights on uneven terrain">Refine with terrain</button>
+      <button id="exportBtn" disabled>Export CSV</button>
+      <button id="geojsonBtn" disabled>Export GeoJSON</button>
+      <button id="writeSensorBtn" disabled title="Write each loaded photo into RGB/Multispectral/Thermal subfolders on disk (Chrome/Edge only)">Write sensor folders…</button>
+      <button id="clearBtn" class="danger" disabled title="Remove all loaded photos, markers, paths, and footprints from the app. Original files on your computer are not touched. Shortcut: Cmd/Ctrl+Shift+Delete">Clear all photos</button>
+    </div>
+  </div>
+  <div id="map">
+    <div id="timeline" class="hidden">
+      <button id="tlPlay" title="Play / pause flight">▶</button>
+      <input id="tlSlider" type="range" min="0" max="0" value="0" />
+      <span id="tlLabel" class="tl-label">—</span>
+      <button id="tlClose" title="Hide timeline">✕</button>
+    </div>
+  </div>
+</div>
+
+<div id="lightbox">
+  <button class="lb-close" id="lbClose" title="Close (Esc)">×</button>
+  <img id="lbImg" alt="" />
+  <div class="lb-info" id="lbInfo"></div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/exifr@7.1.3/dist/full.umd.js"></script>
+<script>
+(() => {
+  // ---------- map + basemaps ----------
+  const map = L.map('map', { zoomControl: true }).setView([20, 0], 2);
+
+  // Streets: CARTO Voyager tiles (OSM data, CARTO-styled). We use CARTO rather
+  // than tile.openstreetmap.org because OSM's tile usage policy explicitly
+  // forbids embedded/redistributed apps and they hard-block clients that hit
+  // their servers from such apps. CARTO is free, no API key, and explicitly
+  // permits embedded use. https://github.com/CartoDB/basemap-styles
+  const osmLayer = L.tileLayer(
+    'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
+    {
+      subdomains: 'abcd',
+      maxZoom: 19,
+      attribution: '© OpenStreetMap contributors © CARTO'
+    }
+  );
+
+  // Satellite: Esri "World Imagery" — free for educational and most non-commercial
+  // use, no API key required. https://www.arcgis.com/home/item.html?id=10df2279f9684e4a9f6a7f08febac2a9
+  const satLayer = L.tileLayer(
+    'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    {
+      maxZoom: 19,
+      attribution: 'Tiles © Esri — Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community'
+    }
+  );
+
+  // Topo: USGS National Map topographic tiles — free, no API key, US coverage
+  // is detailed and global fallback is lower-res. Good for terrain context.
+  const usgsTopoLayer = L.tileLayer(
+    'https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}',
+    { maxZoom: 16, attribution: 'Tiles courtesy of the U.S. Geological Survey' }
+  );
+
+  // Optional overlay: place / road labels you can layer on top of the satellite view.
+  const labelsLayer = L.tileLayer(
+    'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',
+    { maxZoom: 19, attribution: 'Labels © Esri', opacity: 0.9 }
+  );
+
+  osmLayer.addTo(map);
+
+  L.control.layers(
+    {
+      'Streets (OSM)': osmLayer,
+      'Satellite (Esri)': satLayer,
+      'Topo (USGS)': usgsTopoLayer
+    },
+    { 'Place & road labels': labelsLayer },
+    { position: 'topright', collapsed: false }
+  ).addTo(map);
+
+  // ---------- state ----------
+  const PALETTE = ['#38bdf8', '#fb923c', '#a78bfa', '#34d399', '#f472b6', '#facc15', '#f87171', '#22d3ee', '#c084fc', '#4ade80'];
+  /**
+   * project = { name, color, visible, expanded, photos: [], cluster: MarkerClusterGroup, path: Polyline|null }
+   * photo   = { id, name, lat, lon, alt, dateTime, make, model, thumbUrl, marker, projectName }
+   */
+  const projects = new Map();
+  const photosById = new Map();
+  const originalFiles = new Map();   // photo id -> File (for lightbox full-size, direct uploads only)
+  let nextId = 0;
+  let pathsVisible = true;
+  let footprintsEnabled = true;
+  let currentFootprint = null;  // L.polygon for the currently-selected photo
+  let allFootprintsVisible = false;
+  const allFootprintsLayer = L.layerGroup();
+  let searchQuery = '';
+  let gpsOnly = false;
+  // Timeline state
+  const tlState = { ordered: [], idx: 0, playing: false, timer: null };
+  // Grouping mode: 'folder' (default, uses parent folder name) or 'mission'
+  // (auto-detected via time/distance gaps). New photos added later inherit
+  // the active mode so the sidebar stays consistent.
+  let groupingMode = 'folder';
+  let missionParams = { timeGapMin: 10, distGapM: 500 };
+
+  // ---------- persistent state ----------
+  const LS_PREFIX = 'drone-mission-review:';
+  function lsGet(k, fallback) {
+    try {
+      const v = localStorage.getItem(LS_PREFIX + k);
+      return v == null ? fallback : JSON.parse(v);
+    } catch { return fallback; }
+  }
+  function lsSet(k, v) {
+    try { localStorage.setItem(LS_PREFIX + k, JSON.stringify(v)); } catch {}
+  }
+
+  // ---------- DOM ----------
+  const dropzone = document.getElementById('dropzone');
+  const fileInput = document.getElementById('fileInput');
+  const dirInput = document.getElementById('dirInput');
+  const indexInput = document.getElementById('indexInput');
+  const projectList = document.getElementById('projectList');
+  const stats = document.getElementById('stats');
+  const fitBtn = document.getElementById('fitBtn');
+  const pathsBtn = document.getElementById('pathsBtn');
+  const footprintBtn = document.getElementById('footprintBtn');
+  const allFootBtn = document.getElementById('allFootBtn');
+  const missionBtn = document.getElementById('missionBtn');
+  const sensorBtn = document.getElementById('sensorBtn');
+  const restoreFolderBtn = document.getElementById('restoreFolderBtn');
+  const refineBtn = document.getElementById('refineBtn');
+  const clearBtn = document.getElementById('clearBtn');
+  const exportBtn = document.getElementById('exportBtn');
+  const geojsonBtn = document.getElementById('geojsonBtn');
+  const writeSensorBtn = document.getElementById('writeSensorBtn');
+  const searchInput = document.getElementById('searchInput');
+  const gpsOnlyChk = document.getElementById('gpsOnlyChk');
+  const statsPanel = document.getElementById('stats-panel');
+  const statsBody = statsPanel.querySelector('.stats-body');
+  const lightbox = document.getElementById('lightbox');
+  const lbImg = document.getElementById('lbImg');
+  const lbInfo = document.getElementById('lbInfo');
+  const tl = {
+    bar: document.getElementById('timeline'),
+    play: document.getElementById('tlPlay'),
+    slider: document.getElementById('tlSlider'),
+    label: document.getElementById('tlLabel'),
+    close: document.getElementById('tlClose'),
+  };
+
+  // ---------- drop handling ----------
+  ['dragenter','dragover'].forEach(ev =>
+    dropzone.addEventListener(ev, e => { e.preventDefault(); dropzone.classList.add('drag'); })
+  );
+  ['dragleave','drop'].forEach(ev =>
+    dropzone.addEventListener(ev, e => { e.preventDefault(); dropzone.classList.remove('drag'); })
+  );
+  dropzone.addEventListener('drop', async e => {
+    const items = e.dataTransfer.items;
+    const files = [];
+    if (items && items.length && items[0].webkitGetAsEntry) {
+      const entries = Array.from(items).map(i => i.webkitGetAsEntry()).filter(Boolean);
+      for (const entry of entries) await walkEntry(entry, '', files);
+    } else {
+      Array.from(e.dataTransfer.files).forEach(f => { f._relPath = f.name; files.push(f); });
+    }
+    handleFiles(files);
+  });
+
+  async function walkEntry(entry, prefix, out) {
+    if (entry.isFile) {
+      await new Promise(res => entry.file(f => {
+        f._relPath = (prefix ? prefix + '/' : '') + entry.name;
+        out.push(f); res();
+      }));
+    } else if (entry.isDirectory) {
+      const reader = entry.createReader();
+      const newPrefix = prefix ? prefix + '/' + entry.name : entry.name;
+      const all = [];
+      await new Promise(res => {
+        const read = () => reader.readEntries(es => {
+          if (!es.length) return res();
+          all.push(...es); read();
+        });
+        read();
+      });
+      for (const sub of all) await walkEntry(sub, newPrefix, out);
+    }
+  }
+
+  fileInput.addEventListener('change', e => {
+    const files = Array.from(e.target.files);
+    files.forEach(f => { f._relPath = f.name; });
+    handleFiles(files);
+    fileInput.value = '';
+  });
+  dirInput.addEventListener('change', e => {
+    const files = Array.from(e.target.files);
+    files.forEach(f => { f._relPath = f.webkitRelativePath || f.name; });
+    handleFiles(files);
+    dirInput.value = '';
+  });
+  indexInput.addEventListener('change', async e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      loadFromIndex(data);
+    } catch (err) {
+      alert('Could not load index.json: ' + err.message);
+    }
+    indexInput.value = '';
+  });
+
+  // ---------- ingest from files ----------
+  async function handleFiles(fileList) {
+    const files = fileList.filter(f =>
+      /image\/(jpeg|tiff)/i.test(f.type) || /\.(jpe?g|tiff?)$/i.test(f.name)
+    );
+    if (!files.length) return;
+    stats.textContent = `Reading ${files.length} photo${files.length > 1 ? 's' : ''}…`;
+    let done = 0;
+    for (const file of files) {
+      try { await addPhotoFromFile(file); } catch (err) { console.warn('Failed', file.name, err); }
+      done++;
+      if (done % 10 === 0) stats.textContent = `Reading… ${done}/${files.length}`;
+    }
+    finalizeIngest();
+  }
+
+  async function addPhotoFromFile(file) {
+    const relPath = file._relPath || file.name;
+    const parts = relPath.split('/');
+    const projectName = parts.length > 1 ? parts[0] : 'Loose files';
+    const photoFile = file;  // keep the original File so the lightbox can show the full-size image
+
+    // Enable XMP so we can pick up drone-dji:RelativeAltitude / AbsoluteAltitude.
+    // exifr returns XMP fields flattened into the merged output by default;
+    // for DJI we look for 'RelativeAltitude' and 'AbsoluteAltitude'.
+    const exif = await exifr.parse(file, {
+      gps: true, tiff: true, exif: true, ifd0: true, xmp: true
+    }).catch(() => null);
+
+    const lat = exif && exif.latitude != null ? exif.latitude : null;
+    const lon = exif && exif.longitude != null ? exif.longitude : null;
+
+    // Prefer XMP AbsoluteAltitude (DJI), fall back to EXIF GPSAltitude.
+    let absAlt = exif && parseSignedFloat(exif.AbsoluteAltitude);
+    if (absAlt == null && exif && exif.GPSAltitude != null) absAlt = Number(exif.GPSAltitude);
+    const relAlt = exif && parseSignedFloat(exif.RelativeAltitude);
+
+    // Footprint inputs (DJI XMP for orientation; EXIF for FOV).
+    const gimbalYaw   = exif && parseSignedFloat(exif.GimbalYawDegree);
+    const gimbalPitch = exif && parseSignedFloat(exif.GimbalPitchDegree);
+    const gimbalRoll  = exif && parseSignedFloat(exif.GimbalRollDegree);
+    const flightYaw   = exif && parseSignedFloat(exif.FlightYawDegree);
+    const focalLength = exif && parseSignedFloat(exif.FocalLength);
+    const focal35     = exif && parseSignedFloat(
+      exif.FocalLengthIn35mmFormat ?? exif.FocalLengthIn35mmFilm
+    );
+    const imgWidth  = (exif && (exif.ExifImageWidth  ?? exif.ImageWidth))  || null;
+    const imgHeight = (exif && (exif.ExifImageHeight ?? exif.ImageHeight)) || null;
+
+    const dateTime = exif && (exif.DateTimeOriginal || exif.CreateDate || exif.ModifyDate) || null;
+    const make = (exif && exif.Make) || '';
+    const model = (exif && exif.Model) || '';
+    const bandName = (exif && exif.BandName) || '';
+    const sensorType = classifySensor(file.name, make, model, bandName);
+    const thumbUrl = await makeThumbnail(file);
+
+    const id = addPhotoRecord({
+      name: file.name, projectName, lat, lon,
+      absAlt: Number.isFinite(absAlt) ? absAlt : null,
+      relAlt: Number.isFinite(relAlt) ? relAlt : null,
+      gimbalYaw, gimbalPitch, gimbalRoll, flightYaw,
+      focalLength, focal35, imgWidth, imgHeight,
+      dateTime: dateTime ? new Date(dateTime).toISOString() : null,
+      make, model, bandName, sensorType, thumbUrl
+    });
+    if (id != null) originalFiles.set(id, photoFile);
+  }
+
+  // DJI XMP altitudes are strings like "+19.80" or "-177.70".
+  function parseSignedFloat(v) {
+    if (v == null) return null;
+    if (typeof v === 'number') return v;
+    const n = parseFloat(String(v).trim());
+    return Number.isFinite(n) ? n : null;
+  }
+
+  // Classify a photo's sensor type from filename, model, and XMP BandName.
+  // Same heuristics as build_index.py's classify_sensor() — must stay in sync.
+  const THERMAL_MODELS = /FC4382|FC4381|FC4380|FC350|H20T|H20N|XT2|XTR|XT|ZENMUSE.?H20T|ZENMUSE.?XT|FLIR|TAU|BOSON|VUE.?PRO|\bM3T\b|MAVIC.?3.?THERMAL/i;
+  const MS_MODELS      = /FC4396|FC6310M|P4M|P4.?MULTISPECTRAL|ALTUM|RED.?EDGE|MICASENSE|SEQUOIA|MS600|\bM3M\b|MAVIC.?3.?MULTISPECTRAL/i;
+  function classifySensor(name, make, model, bandName) {
+    const f = (name || '').toLowerCase();
+    const m = (model || '').toUpperCase();
+    const mk = (make || '').toUpperCase();
+    const bn = (bandName || '').toLowerCase();
+    // Multispectral suffixes go first — more specific than the thermal
+    // fallbacks below (otherwise "_NIR.TIF" gets caught by an "ir" rule).
+    if (/_(g|r|re|nir|red|green|blue|rededge|red-edge)\.tiff?$/i.test(f)) return 'Multispectral';
+    if (/_t\.(jpe?g|tiff?)$|_thm\.(jpe?g|tiff?)$|_thermal\.(jpe?g|tiff?)$|_ir\.tiff?$/i.test(f)) return 'Thermal';
+    if (/thermal|r-jpeg|rjpeg/i.test(f)) return 'Thermal';
+    if (/_(rgb|d)\.(jpe?g)$/i.test(f)) return 'RGB';
+    if (bn) {
+      if (/thermal|lwir|^ir$/.test(bn)) return 'Thermal';
+      return 'Multispectral';
+    }
+    if (THERMAL_MODELS.test(m)) return 'Thermal';
+    if (MS_MODELS.test(m)) return 'Multispectral';
+    if (/\.(jpe?g)$/i.test(f) && (/DJI/.test(mk) || /^FC/.test(m))) return 'RGB';
+    if (/\.(jpe?g)$/i.test(f)) return 'RGB';
+    return 'Unknown';
+  }
+
+  async function makeThumbnail(file, size = 96) {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const img = new Image();
+        img.onload = () => {
+          const c = document.createElement('canvas');
+          const ratio = Math.min(size / img.width, size / img.height);
+          c.width = Math.max(1, Math.round(img.width * ratio));
+          c.height = Math.max(1, Math.round(img.height * ratio));
+          c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+          resolve(c.toDataURL('image/jpeg', 0.7));
+        };
+        img.onerror = () => resolve('');
+        img.src = reader.result;
+      };
+      reader.onerror = () => resolve('');
+      reader.readAsDataURL(file);
+    });
+  }
+
+  // ---------- ingest from index.json ----------
+  function loadFromIndex(data) {
+    if (!data || !Array.isArray(data.projects)) {
+      alert('index.json missing "projects" array.');
+      return;
+    }
+    stats.textContent = `Loading index…`;
+    data.projects.forEach(proj => {
+      const projName = proj.name || 'Untitled';
+      (proj.photos || []).forEach(p => {
+        addPhotoRecord({
+          name: p.name,
+          projectName: projName,
+          lat: p.lat ?? null,
+          lon: p.lon ?? null,
+          // accept both new (absAlt/relAlt) and legacy (alt) field names
+          absAlt: p.absAlt ?? p.alt ?? null,
+          relAlt: p.relAlt ?? null,
+          gimbalYaw: p.gimbalYaw ?? null,
+          gimbalPitch: p.gimbalPitch ?? null,
+          gimbalRoll: p.gimbalRoll ?? null,
+          flightYaw: p.flightYaw ?? null,
+          focalLength: p.focalLength ?? null,
+          focal35: p.focal35 ?? null,
+          imgWidth: p.imgWidth ?? null,
+          imgHeight: p.imgHeight ?? null,
+          dateTime: p.dateTime || null,
+          make: p.make || '',
+          model: p.model || '',
+          bandName: p.bandName || '',
+          // Older index.json files predate sensorType; fall back to a fresh
+          // classification when the field is missing.
+          sensorType: p.sensorType || classifySensor(p.name, p.make, p.model, p.bandName),
+          thumbUrl: p.thumb || ''
+        });
+      });
+    });
+    finalizeIngest();
+  }
+
+  // ---------- shared add ----------
+  function getOrCreateProject(name) {
+    if (projects.has(name)) return projects.get(name);
+    const color = PALETTE[projects.size % PALETTE.length];
+    const cluster = L.markerClusterGroup({
+      iconCreateFunction: c => L.divIcon({
+        html: `<div style="background:${color};color:#000;font-weight:700;border-radius:50%;width:34px;height:34px;line-height:34px;text-align:center;border:2px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,0.35);">${c.getChildCount()}</div>`,
+        className: '', iconSize: [34, 34]
+      }),
+      // Smaller cluster radius means markers break apart at lower zoom levels.
+      maxClusterRadius: 30,
+      // Past zoom 18, never cluster — show every photo as its own arrow.
+      // Critical for tight mapping flights (e.g., 100 m × 60 m grids) where
+      // students otherwise only ever see a single number bubble.
+      disableClusteringAtZoom: 19,
+      spiderfyOnMaxZoom: false,
+      showCoverageOnHover: false
+    });
+    cluster.addTo(map);
+    const proj = { name, color, visible: true, expanded: false, photos: [], cluster, path: null };
+    projects.set(name, proj);
+    return proj;
+  }
+
+  function addPhotoRecord(rec) {
+    const id = nextId++;
+    const proj = getOrCreateProject(rec.projectName);
+    const photo = {
+      id,
+      name: rec.name,
+      lat: rec.lat,
+      lon: rec.lon,
+      absAlt: rec.absAlt,
+      relAlt: rec.relAlt,
+      gimbalYaw: rec.gimbalYaw,
+      gimbalPitch: rec.gimbalPitch,
+      gimbalRoll: rec.gimbalRoll,
+      flightYaw: rec.flightYaw,
+      focalLength: rec.focalLength,
+      focal35: rec.focal35,
+      imgWidth: rec.imgWidth,
+      imgHeight: rec.imgHeight,
+      dateTime: rec.dateTime,
+      make: rec.make,
+      model: rec.model,
+      thumbUrl: rec.thumbUrl,
+      projectName: rec.projectName,
+      bandName: rec.bandName || '',
+      sensorType: rec.sensorType || 'Unknown',
+      // Remember the original folder so "Restore folders" can put it back
+      // after the user has switched to mission-based grouping.
+      originalProjectName: rec.projectName,
+      marker: null
+    };
+    if (photo.lat != null && photo.lon != null) {
+      const marker = L.marker([photo.lat, photo.lon], { icon: buildIcon(photo, proj.color) });
+      marker.bindPopup(popupHtml(photo));
+      marker._photo = photo;  // for the lightbox popupopen handler
+      marker.on('click', () => selectPhoto(id));
+      proj.cluster.addLayer(marker);
+      photo.marker = marker;
+    }
+    proj.photos.push(photo);
+    photosById.set(id, photo);
+    return id;
+  }
+
+  function finalizeIngest() {
+    // sort each project by datetime and rebuild flight path
+    for (const proj of projects.values()) {
+      proj.photos.sort((a, b) => {
+        const ta = a.dateTime ? Date.parse(a.dateTime) : Number.MAX_SAFE_INTEGER;
+        const tb = b.dateTime ? Date.parse(b.dateTime) : Number.MAX_SAFE_INTEGER;
+        return ta - tb || a.name.localeCompare(b.name);
+      });
+      rebuildPath(proj);
+    }
+    updateStats();
+    refreshList();
+    const anyGps = [...photosById.values()].some(p => p.lat != null);
+    fitBtn.disabled = !anyGps;
+    pathsBtn.disabled = !anyGps;
+    allFootBtn.disabled = !anyGps;
+    refineBtn.disabled = !anyGps;
+    missionBtn.disabled = photosById.size === 0;
+    sensorBtn.disabled = photosById.size === 0;
+    clearBtn.disabled = photosById.size === 0;
+    exportBtn.disabled = photosById.size === 0;
+    geojsonBtn.disabled = !anyGps;
+    // Only enable folder-write when there are actually original files to write
+    // — index.json-loaded datasets have only thumbnails.
+    writeSensorBtn.disabled = originalFiles.size === 0;
+    // If the user previously asked for mission or sensor grouping, re-apply
+    // it to any newly added photos so the sidebar stays in the chosen mode.
+    if (groupingMode === 'mission') applyMissionGrouping();
+    else if (groupingMode === 'sensor') applySensorGrouping();
+    refreshStats();
+    buildTimeline();
+    if (allFootprintsVisible) rebuildAllFootprintsLayer();
+    // Auto-fit the map to the loaded photos' extent so the user doesn't have
+    // to hit "Fit to photos" manually after every drop / index load.
+    autoFitToPhotos();
+  }
+
+  function autoFitToPhotos() {
+    const coords = [...photosById.values()]
+      .filter(p => p.lat != null)
+      .map(p => [p.lat, p.lon]);
+    if (!coords.length) return;
+    // Tighter padding for a single point so we don't zoom past the map's
+    // maximum and end up at a useless zoom level.
+    const padding = coords.length === 1 ? [60, 60] : [40, 40];
+    // maxZoom 19 matches what CARTO Voyager and Esri Imagery actually serve;
+    // small dense datasets like a tight mapping flight will land at 19 so
+    // students see individual arrows rather than just a cluster bubble.
+    map.fitBounds(L.latLngBounds(coords), { padding, maxZoom: 19 });
+  }
+
+  function rebuildPath(proj) {
+    if (proj.path) { map.removeLayer(proj.path); proj.path = null; }
+    const pts = proj.photos.filter(p => p.lat != null).map(p => [p.lat, p.lon]);
+    if (pts.length < 2) return;
+    proj.path = L.polyline(pts, {
+      color: proj.color, weight: 2.5, opacity: 0.85, dashArray: '4,4'
+    });
+    if (pathsVisible && proj.visible) proj.path.addTo(map);
+  }
+
+  // ---------- popup ----------
+  function popupHtml(p) {
+    const dt = p.dateTime ? new Date(p.dateTime).toLocaleString() : '';
+    const altParts = [];
+    if (p.relAlt != null) altParts.push(`Rel: ${Number(p.relAlt).toFixed(1)} m`);
+    if (p.absAlt != null) altParts.push(`Abs: ${Number(p.absAlt).toFixed(1)} m`);
+    if (p.terrainHeight != null) altParts.push(`AGL: ${Number(p.terrainHeight).toFixed(1)} m`);
+    let groundStr = '';
+    if (p.groundElev != null) {
+      groundStr = `Ground: ${Number(p.groundElev).toFixed(1)} m MSL`;
+    }
+    // Image pixel dimensions: simple and always available when the file has
+    // them set in EXIF (every JPEG basically does). Useful pedagogically as
+    // students compare image resolution to footprint ground sample distance.
+    let imgStr = '';
+    if (p.imgWidth && p.imgHeight) {
+      const mp = (p.imgWidth * p.imgHeight / 1e6).toFixed(1);
+      imgStr = `${p.imgWidth} × ${p.imgHeight} px (${mp} MP)`;
+    }
+    // Compute footprint dimensions for the popup blurb (in metres). We just
+    // need the rectangle size, not the corner coordinates, so we re-derive
+    // them inline here. Cheap.
+    let footStr = '';
+    let gsdStr = '';
+    const corners = computeFootprint(p);
+    if (corners) {
+      // approx side lengths from corners 0-1 (top edge) and 1-2 (right edge)
+      const d01 = haversine(corners[0], corners[1]);
+      const d12 = haversine(corners[1], corners[2]);
+      footStr = `${d01.toFixed(1)} × ${d12.toFixed(1)} m (~${(d01 * d12).toFixed(0)} m²)`;
+      // Ground sample distance = ground width in cm divided by image width in px
+      if (p.imgWidth) {
+        const gsd = (d01 * 100) / p.imgWidth;   // cm / px
+        gsdStr = `${gsd.toFixed(2)} cm/px`;
+      }
+    }
+    return `
+      <div class="pop-name">${escapeHtml(p.name)}</div>
+      ${p.thumbUrl ? `<img class="popup-thumb" data-photo-id="${p.id}" src="${p.thumbUrl}" alt="" title="Click to enlarge">` : ''}
+      <div class="pop-meta">
+        <div>Project: ${escapeHtml(p.projectName)}</div>
+        ${p.lat != null ? `<div>${p.lat.toFixed(6)}, ${p.lon.toFixed(6)}</div>` : ''}
+        ${altParts.length ? `<div>${altParts.join(' · ')}</div>` : ''}
+        ${groundStr ? `<div>${groundStr}</div>` : ''}
+        ${imgStr ? `<div>Image: ${imgStr}</div>` : ''}
+        ${footStr ? `<div>Footprint: ${footStr}</div>` : ''}
+        ${gsdStr ? `<div>Ground sample: ${gsdStr}</div>` : ''}
+        ${dt ? `<div>${dt}</div>` : ''}
+        ${(p.make || p.model) ? `<div>${escapeHtml(p.make)} ${escapeHtml(p.model)}</div>` : ''}
+        ${p.sensorType && p.sensorType !== 'Unknown' ? `<div>Sensor: ${escapeHtml(p.sensorType)}${p.bandName ? ' · ' + escapeHtml(p.bandName) : ''}</div>` : ''}
+      </div>
+    `;
+  }
+
+  // Simple great-circle distance in metres between two [lat, lon] points.
+  function haversine(a, b) {
+    const R = 6371000;
+    const φ1 = a[0] * Math.PI / 180, φ2 = b[0] * Math.PI / 180;
+    const dφ = (b[0] - a[0]) * Math.PI / 180;
+    const dλ = (b[1] - a[1]) * Math.PI / 180;
+    const s = Math.sin(dφ / 2) ** 2 + Math.cos(φ1) * Math.cos(φ2) * Math.sin(dλ / 2) ** 2;
+    return 2 * R * Math.asin(Math.sqrt(s));
+  }
+
+  // ---------- sidebar render ----------
+  function refreshList() {
+    if (!projects.size) {
+      projectList.innerHTML = '<div class="empty">Projects appear here once loaded.</div>';
+      return;
+    }
+    projectList.innerHTML = '';
+    for (const proj of projects.values()) {
+      // Skip projects with no matches under the current filter
+      const matches = proj.photos.filter(passesFilter);
+      if ((searchQuery || gpsOnly) && !matches.length) continue;
+      const withGps = proj.photos.filter(p => p.lat != null).length;
+      const wrapper = document.createElement('div');
+      wrapper.className = 'project' + (proj.expanded ? ' expanded' : '');
+      wrapper.innerHTML = `
+        <div class="project-header">
+          <span class="chevron">▶</span>
+          <span class="project-swatch" style="background:${proj.color}"></span>
+          <span class="project-name">${escapeHtml(proj.name)}</span>
+          <span class="project-count">${proj.photos.length} · ${withGps} GPS</span>
+          <button class="project-toggle ${proj.visible ? '' : 'off'}" title="Show/hide on map">${proj.visible ? '👁' : '🚫'}</button>
+        </div>
+        <div class="project-photos"></div>
+      `;
+      const header = wrapper.querySelector('.project-header');
+      const toggle = wrapper.querySelector('.project-toggle');
+      const photosEl = wrapper.querySelector('.project-photos');
+
+      header.addEventListener('click', e => {
+        if (e.target.closest('.project-toggle')) return;
+        proj.expanded = !proj.expanded;
+        wrapper.classList.toggle('expanded', proj.expanded);
+        if (proj.expanded && !photosEl.childElementCount) renderPhotosInto(photosEl, proj);
+      });
+      toggle.addEventListener('click', e => {
+        e.stopPropagation();
+        proj.visible = !proj.visible;
+        if (proj.visible) {
+          map.addLayer(proj.cluster);
+          if (pathsVisible && proj.path) proj.path.addTo(map);
+        } else {
+          map.removeLayer(proj.cluster);
+          if (proj.path) map.removeLayer(proj.path);
+        }
+        toggle.textContent = proj.visible ? '👁' : '🚫';
+        toggle.classList.toggle('off', !proj.visible);
+      });
+
+      if (proj.expanded) renderPhotosInto(photosEl, proj);
+      projectList.appendChild(wrapper);
+    }
+  }
+
+  function renderPhotosInto(container, proj) {
+    container.innerHTML = '';
+    proj.photos.filter(passesFilter).forEach(p => {
+      const div = document.createElement('div');
+      div.className = 'photo-item';
+      div.dataset.id = p.id;
+      div.innerHTML = `
+        <img src="${p.thumbUrl || ''}" alt="">
+        <div class="meta">
+          <div class="name">${escapeHtml(p.name)}</div>
+          <div class="coords">
+            ${p.lat != null
+              ? `<span class="badge-gps" style="background:${proj.color}">GPS</span> ${p.lat.toFixed(5)}, ${p.lon.toFixed(5)}`
+              : `<span class="badge-nogps">NO GPS</span>`}
+          </div>
+        </div>
+      `;
+      div.addEventListener('click', () => selectPhoto(p.id));
+      container.appendChild(div);
+    });
+  }
+
+  function selectPhoto(id) {
+    const p = photosById.get(id);
+    if (!p) return;
+    document.querySelectorAll('.photo-item').forEach(el =>
+      el.classList.toggle('active', Number(el.dataset.id) === id)
+    );
+    showFootprintFor(p);
+    if (p.marker) {
+      const proj = projects.get(p.projectName);
+      if (proj) proj.cluster.zoomToShowLayer(p.marker, () => {
+        p.marker.openPopup();
+      });
+    }
+  }
+
+  // Marker icon: a colored arrow pointing in the gimbal-yaw direction when
+  // we have it, falling back to a plain circle for photos without yaw data.
+  function buildIcon(photo, color) {
+    const yaw = photo.gimbalYaw != null ? photo.gimbalYaw
+              : (photo.flightYaw != null ? photo.flightYaw : null);
+    if (yaw == null) {
+      return L.divIcon({
+        className: 'dot',
+        html: `<div style="width:14px;height:14px;border-radius:50%;background:${color};border:2px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,0.35);"></div>`,
+        iconSize: [14, 14], iconAnchor: [7, 7]
+      });
+    }
+    const svg = `
+      <svg width="22" height="22" viewBox="-11 -11 22 22"
+           style="transform:rotate(${yaw}deg);transform-origin:center;">
+        <circle cx="0" cy="0" r="7" fill="${color}" stroke="#fff" stroke-width="1.6"/>
+        <polygon points="0,-9 4,-2 -4,-2" fill="#fff" stroke="rgba(0,0,0,0.5)" stroke-width="0.5"/>
+      </svg>`;
+    return L.divIcon({
+      className: 'marker-arrow',
+      html: svg, iconSize: [22, 22], iconAnchor: [11, 11]
+    });
+  }
+
+  // ---------- footprint computation ----------
+
+  /**
+   * Compute the polygon (4 corners, lat/lng) of the ground area covered by
+   * a photo. Returns null if we lack required data or the photo is too
+   * oblique for the simple nadir-projection approximation.
+   *
+   * Approach: treat the camera as a pinhole at altitude h above flat ground.
+   * The image's 35mm-equivalent focal length plus its aspect ratio give us
+   * horizontal and vertical fields-of-view. For a near-nadir camera, the
+   * footprint is a rectangle of size (2 h tan(HFOV/2)) by (2 h tan(VFOV/2)),
+   * rotated by the gimbal yaw.
+   */
+  function computeFootprint(p) {
+    if (p.lat == null || p.lon == null) return null;
+    // Prefer terrain-adjusted height (from "Refine with terrain") when available.
+    // Otherwise use relative altitude (height above takeoff). Fall back to
+    // absAlt only if it's positive (DJI's barometric absAlt is often miscalibrated).
+    let h = (p.terrainHeight != null) ? p.terrainHeight : p.relAlt;
+    if (h == null && p.absAlt != null && p.absAlt > 0) h = p.absAlt;
+    if (h == null || h <= 0.5) return null;  // too close to ground / no data
+
+    if (!p.focal35 || !p.imgWidth || !p.imgHeight) return null;
+
+    // Pitch ≈ -90° is nadir; we only render footprints within ±20° of nadir.
+    const pitch = p.gimbalPitch != null ? p.gimbalPitch : -90;
+    if (Math.abs(pitch + 90) > 20) return null;
+
+    // Heading: prefer gimbal yaw, fall back to drone-body yaw.
+    const yawDeg = p.gimbalYaw != null ? p.gimbalYaw
+                  : (p.flightYaw != null ? p.flightYaw : 0);
+
+    // Derive HFOV and VFOV from the 35mm-equivalent focal length, scaling the
+    // notional 35mm sensor (diagonal 43.27 mm) to the image's aspect ratio.
+    const aspect = p.imgWidth / p.imgHeight;
+    const diag35 = Math.sqrt(36 * 36 + 24 * 24);
+    const sensorH = diag35 / Math.sqrt(aspect * aspect + 1);
+    const sensorW = aspect * sensorH;
+    const hfov = 2 * Math.atan(sensorW / (2 * p.focal35));
+    const vfov = 2 * Math.atan(sensorH / (2 * p.focal35));
+
+    const halfRight   = h * Math.tan(hfov / 2);  // metres
+    const halfForward = h * Math.tan(vfov / 2);
+
+    // Corners in camera-local frame: +right (image x), +forward (image y up)
+    const cornersLocal = [
+      [-halfRight, +halfForward],   // top-left
+      [+halfRight, +halfForward],   // top-right
+      [+halfRight, -halfForward],   // bottom-right
+      [-halfRight, -halfForward],   // bottom-left
+    ];
+
+    // Yaw is clockwise from north. Forward direction in (east, north):
+    //   forward = (sin yaw,  cos yaw)
+    //   right   = (cos yaw, -sin yaw)
+    const yawRad = yawDeg * Math.PI / 180;
+    const cosY = Math.cos(yawRad), sinY = Math.sin(yawRad);
+    const cosLat = Math.cos(p.lat * Math.PI / 180);
+
+    return cornersLocal.map(([cr, cf]) => {
+      const east  =  cr * cosY + cf * sinY;
+      const north = -cr * sinY + cf * cosY;
+      const dLat = north / 111111;
+      const dLon = east / (111111 * cosLat);
+      return [p.lat + dLat, p.lon + dLon];
+    });
+  }
+
+  function clearFootprint() {
+    if (currentFootprint) {
+      map.removeLayer(currentFootprint);
+      currentFootprint = null;
+    }
+  }
+
+  function showFootprintFor(p) {
+    clearFootprint();
+    if (!footprintsEnabled) return;
+    const corners = computeFootprint(p);
+    if (!corners) return;
+    const color = (projects.get(p.projectName) || {}).color || '#38bdf8';
+    currentFootprint = L.polygon(corners, {
+      color, weight: 2, opacity: 0.95,
+      fillColor: color, fillOpacity: 0.18,
+      interactive: false
+    }).addTo(map);
+  }
+
+  // ---------- show all footprints layer ----------
+  function rebuildAllFootprintsLayer() {
+    allFootprintsLayer.clearLayers();
+    if (!allFootprintsVisible) return;
+    for (const proj of projects.values()) {
+      if (!proj.visible) continue;
+      for (const p of proj.photos) {
+        const corners = computeFootprint(p);
+        if (!corners) continue;
+        L.polygon(corners, {
+          color: proj.color, weight: 1, opacity: 0.7,
+          fillColor: proj.color, fillOpacity: 0.08, interactive: false
+        }).addTo(allFootprintsLayer);
+      }
+    }
+  }
+  function setAllFootprintsVisible(v) {
+    allFootprintsVisible = v;
+    if (v) { allFootprintsLayer.addTo(map); rebuildAllFootprintsLayer(); }
+    else { map.removeLayer(allFootprintsLayer); allFootprintsLayer.clearLayers(); }
+    allFootBtn.textContent = v ? 'Hide all footprints' : 'Show all footprints';
+    lsSet('allFootprints', v);
+  }
+
+  // ---------- lightbox ----------
+  function openLightbox(p) {
+    let src = p.thumbUrl;            // fallback
+    const file = originalFiles.get(p.id);
+    let revokeUrl = null;
+    if (file) {
+      revokeUrl = URL.createObjectURL(file);
+      src = revokeUrl;
+    }
+    lbImg.src = src;
+    lbInfo.textContent = `${p.name} · ${p.imgWidth ?? '?'}×${p.imgHeight ?? '?'} · ${p.projectName}`;
+    lightbox.classList.add('open');
+    lightbox.dataset.revoke = revokeUrl || '';
+  }
+  function closeLightbox() {
+    if (lightbox.dataset.revoke) URL.revokeObjectURL(lightbox.dataset.revoke);
+    lightbox.dataset.revoke = '';
+    lbImg.removeAttribute('src');  // removeAttribute avoids a request for the page URL on src=''
+    lightbox.classList.remove('open');
+  }
+  // Click any popup thumbnail to open the lightbox. We use document-level
+  // event delegation rather than the popupopen event because Leaflet rebuilds
+  // the popup DOM on every open, which makes the per-popup approach race-y.
+  // The img element carries data-photo-id so we don't have to chase the
+  // popup's _source.
+  document.addEventListener('click', e => {
+    const img = e.target && e.target.closest && e.target.closest('img.popup-thumb');
+    if (!img) return;
+    const id = parseInt(img.dataset.photoId, 10);
+    if (Number.isNaN(id)) return;
+    const p = photosById.get(id);
+    if (p) {
+      e.stopPropagation();
+      openLightbox(p);
+    }
+  });
+  document.getElementById('lbClose').addEventListener('click', closeLightbox);
+  lightbox.addEventListener('click', e => { if (e.target === lightbox) closeLightbox(); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && lightbox.classList.contains('open')) closeLightbox(); });
+
+  // ---------- search / filter ----------
+  function passesFilter(p) {
+    if (gpsOnly && p.lat == null) return false;
+    if (searchQuery && !p.name.toLowerCase().includes(searchQuery)) return false;
+    return true;
+  }
+  searchInput.addEventListener('input', () => {
+    searchQuery = searchInput.value.trim().toLowerCase();
+    refreshList();
+  });
+  gpsOnlyChk.addEventListener('change', () => {
+    gpsOnly = gpsOnlyChk.checked;
+    lsSet('gpsOnly', gpsOnly);
+    refreshList();
+  });
+
+  // ---------- flight statistics ----------
+  function computeStatsForPhotos(photos) {
+    const gps = photos.filter(p => p.lat != null);
+    if (!gps.length) return null;
+    const times = gps.map(p => p.dateTime ? Date.parse(p.dateTime) : null).filter(Number.isFinite);
+    const durationSec = times.length >= 2 ? (Math.max(...times) - Math.min(...times)) / 1000 : null;
+    const alts = gps.map(p => p.relAlt).filter(v => typeof v === 'number');
+    const meanAlt = alts.length ? alts.reduce((a,b)=>a+b,0) / alts.length : null;
+    const minAlt = alts.length ? Math.min(...alts) : null;
+    const maxAlt = alts.length ? Math.max(...alts) : null;
+    // Total path length using haversine between consecutive photos in time order
+    const ordered = [...gps].sort((a, b) =>
+      (a.dateTime ? Date.parse(a.dateTime) : 0) - (b.dateTime ? Date.parse(b.dateTime) : 0));
+    let pathLen = 0;
+    for (let i = 1; i < ordered.length; i++) {
+      pathLen += haversine([ordered[i-1].lat, ordered[i-1].lon], [ordered[i].lat, ordered[i].lon]);
+    }
+    const speed = (durationSec && durationSec > 0) ? pathLen / durationSec : null;
+    // Bounding box area (rough rectangle, not actual coverage)
+    const lats = gps.map(p => p.lat), lons = gps.map(p => p.lon);
+    const latSpan = (Math.max(...lats) - Math.min(...lats)) * 111111;
+    const lonSpan = (Math.max(...lons) - Math.min(...lons)) * 111111
+                    * Math.cos((lats[0]||0) * Math.PI / 180);
+    const bboxArea = latSpan * lonSpan;
+    // Sum of footprints (with overlap — not de-duplicated; quick proxy for coverage)
+    let footprintSum = 0;
+    for (const p of gps) {
+      const c = computeFootprint(p);
+      if (!c) continue;
+      footprintSum += haversine(c[0], c[1]) * haversine(c[1], c[2]);
+    }
+    const cadence = (durationSec && gps.length > 1) ? durationSec / (gps.length - 1) : null;
+    return { count: photos.length, gpsCount: gps.length,
+             durationSec, meanAlt, minAlt, maxAlt, pathLen, speed,
+             bboxArea, footprintSum, cadence };
+  }
+
+  function fmtDuration(sec) {
+    if (sec == null) return '—';
+    if (sec < 60) return `${sec.toFixed(0)} s`;
+    const m = Math.floor(sec / 60), s = Math.round(sec % 60);
+    return `${m}m ${s}s`;
+  }
+  function fmtArea(m2) {
+    if (m2 == null) return '—';
+    return m2 >= 10000 ? `${(m2/10000).toFixed(2)} ha` : `${m2.toFixed(0)} m²`;
+  }
+  function statRow(name, val) {
+    return `<div class="stat-row"><span class="stat-name">${name}</span><span class="stat-val">${val}</span></div>`;
+  }
+  function refreshStats() {
+    if (!projects.size) {
+      statsBody.innerHTML = '<div style="color:var(--muted)">Load photos to see stats.</div>';
+      return;
+    }
+    const all = [...photosById.values()];
+    const total = computeStatsForPhotos(all);
+    let html = '';
+    if (total) {
+      html += statRow('Photos', `${total.count} (${total.gpsCount} GPS)`);
+      html += statRow('Duration', fmtDuration(total.durationSec));
+      html += statRow('Flight path', total.pathLen ? `${total.pathLen.toFixed(0)} m` : '—');
+      html += statRow('Avg speed', total.speed ? `${total.speed.toFixed(1)} m/s` : '—');
+      html += statRow('Altitude (rel)', total.meanAlt != null
+                       ? `${total.meanAlt.toFixed(1)} m  (${total.minAlt.toFixed(1)}–${total.maxAlt.toFixed(1)})`
+                       : '—');
+      html += statRow('Photo cadence', total.cadence != null ? `${total.cadence.toFixed(1)} s` : '—');
+      html += statRow('Bbox area', fmtArea(total.bboxArea));
+      html += statRow('Σ footprints', fmtArea(total.footprintSum));
+    }
+    for (const proj of projects.values()) {
+      const s = computeStatsForPhotos(proj.photos);
+      if (!s) continue;
+      html += `<div class="project-sub" style="color:${proj.color}">${escapeHtml(proj.name)}</div>`;
+      html += statRow('Photos', `${s.count} (${s.gpsCount} GPS)`);
+      html += statRow('Duration', fmtDuration(s.durationSec));
+      html += statRow('Altitude (rel)', s.meanAlt != null
+                       ? `${s.meanAlt.toFixed(1)} m  (${s.minAlt.toFixed(1)}–${s.maxAlt.toFixed(1)})`
+                       : '—');
+      html += statRow('Σ footprints', fmtArea(s.footprintSum));
+    }
+    statsBody.innerHTML = html;
+  }
+  // Toggle stats panel open/closed
+  statsPanel.querySelector('header').addEventListener('click', () => {
+    statsPanel.classList.toggle('collapsed');
+    lsSet('statsCollapsed', statsPanel.classList.contains('collapsed'));
+  });
+
+  // ---------- timeline ----------
+  function buildTimeline() {
+    // Order all photos with timestamps chronologically (across all projects)
+    tlState.ordered = [...photosById.values()]
+      .filter(p => p.dateTime && p.lat != null)
+      .sort((a, b) => Date.parse(a.dateTime) - Date.parse(b.dateTime));
+    if (!tlState.ordered.length) {
+      tl.bar.classList.add('hidden');
+      return;
+    }
+    tl.bar.classList.remove('hidden');
+    tl.slider.min = 0;
+    tl.slider.max = tlState.ordered.length - 1;
+    tl.slider.value = 0;
+    tlState.idx = 0;
+    tl.label.textContent = `1 / ${tlState.ordered.length}`;
+  }
+  function tlGoto(i) {
+    if (!tlState.ordered.length) return;
+    i = Math.max(0, Math.min(tlState.ordered.length - 1, i));
+    tlState.idx = i;
+    tl.slider.value = i;
+    const p = tlState.ordered[i];
+    const dt = p.dateTime ? new Date(p.dateTime).toLocaleTimeString() : '—';
+    tl.label.textContent = `${i + 1} / ${tlState.ordered.length} · ${dt}`;
+    selectPhoto(p.id);
+  }
+  function tlPlayPause() {
+    if (tlState.playing) {
+      clearInterval(tlState.timer); tlState.timer = null; tlState.playing = false;
+      tl.play.textContent = '▶';
+    } else {
+      tlState.playing = true; tl.play.textContent = '⏸';
+      tlState.timer = setInterval(() => {
+        let next = tlState.idx + 1;
+        if (next >= tlState.ordered.length) next = 0;
+        tlGoto(next);
+      }, 600);
+    }
+  }
+  tl.slider.addEventListener('input', () => tlGoto(parseInt(tl.slider.value, 10)));
+  tl.play.addEventListener('click', tlPlayPause);
+  tl.close.addEventListener('click', () => {
+    if (tlState.playing) tlPlayPause();
+    tl.bar.classList.add('hidden');
+  });
+
+  // ---------- GeoJSON export ----------
+  function exportGeoJSON() {
+    const features = [];
+    for (const proj of projects.values()) {
+      for (const p of proj.photos) {
+        if (p.lat == null || p.lon == null) continue;
+        const props = {
+          project: proj.name, name: p.name,
+          absoluteAltitude_m: p.absAlt, relativeAltitude_m: p.relAlt,
+          terrainHeight_m: p.terrainHeight ?? null,
+          groundElevation_m: p.groundElev ?? null,
+          dateTime: p.dateTime, make: p.make, model: p.model,
+          gimbalYaw: p.gimbalYaw, gimbalPitch: p.gimbalPitch,
+          focalLengthIn35mm_mm: p.focal35,
+        };
+        features.push({
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [p.lon, p.lat] },
+          properties: { ...props, kind: 'photo' }
+        });
+        const corners = computeFootprint(p);
+        if (corners) {
+          const ring = [...corners.map(([la, lo]) => [lo, la]), [corners[0][1], corners[0][0]]];
+          features.push({
+            type: 'Feature',
+            geometry: { type: 'Polygon', coordinates: [ring] },
+            properties: { ...props, kind: 'footprint' }
+          });
+        }
+      }
+    }
+    const fc = { type: 'FeatureCollection', features };
+    const blob = new Blob([JSON.stringify(fc, null, 2)], { type: 'application/geo+json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'dronedb_export.geojson'; a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  // ---------- DEM refinement ----------
+  //
+  // We try two free elevation services in sequence:
+  //   1. OpenTopoData (SRTM 30 m) — global, batched (100 locations / request),
+  //      free, no API key. Failures here are usually CORS-from-file:// or
+  //      network blocks on restricted campus networks.
+  //   2. USGS EPQS — US-only, 1 point / request, but hosted on a .gov domain
+  //      which most academic networks let through, and very reliable.
+  //
+  // Both responses give elevation in metres above sea level. We use the
+  // lowest-relAlt photo as the takeoff reference and compute
+  //   terrainHeight = relAlt - (groundElev - takeoffElev)
+  // so footprint dimensions reflect height above the actual ground, not
+  // height above the takeoff point.
+
+  async function fetchElevationsOpenTopo(photos, log) {
+    const out = {};
+    for (let i = 0; i < photos.length; i += 100) {
+      const batch = photos.slice(i, i + 100);
+      const locParam = batch.map(p => `${p.lat},${p.lon}`).join('|');
+      // encodeURIComponent makes the pipe character a proper %7C so picky
+      // gateways don't reject the URL.
+      const url = 'https://api.opentopodata.org/v1/srtm30m?locations='
+                  + encodeURIComponent(locParam);
+      log(`OpenTopoData batch ${i / 100 + 1}: ${batch.length} points…`);
+      const resp = await fetch(url, { mode: 'cors' });
+      if (!resp.ok) throw new Error(`OpenTopoData HTTP ${resp.status}`);
+      const data = await resp.json();
+      (data.results || []).forEach((r, j) => {
+        if (r.elevation != null) out[batch[j].id] = r.elevation;
+      });
+      if (i + 100 < photos.length) await new Promise(r => setTimeout(r, 1100));
+    }
+    return out;
+  }
+
+  async function fetchElevationsUsgs(photos, log) {
+    // USGS EPQS only covers the contiguous US; outside that the value is null.
+    // One point per request, so it's slow — we pace at ~5 req/s.
+    const out = {};
+    for (let i = 0; i < photos.length; i++) {
+      const p = photos[i];
+      const url = `https://epqs.nationalmap.gov/v1/json?x=${encodeURIComponent(p.lon)}`
+                + `&y=${encodeURIComponent(p.lat)}&units=Meters&wkid=4326&includeDate=False`;
+      if (i % 10 === 0) log(`USGS EPQS: ${i + 1} / ${photos.length}…`);
+      const resp = await fetch(url, { mode: 'cors' });
+      if (!resp.ok) throw new Error(`USGS HTTP ${resp.status}`);
+      const data = await resp.json();
+      const v = data && (data.value ?? (data.location && data.location.elevation));
+      const num = parseFloat(v);
+      // EPQS returns -1000000 outside coverage; treat that as missing.
+      if (Number.isFinite(num) && num > -9999) out[p.id] = num;
+      // ~5 req/s — fast enough for a class flight, slow enough to stay polite
+      if (i + 1 < photos.length) await new Promise(r => setTimeout(r, 200));
+    }
+    return out;
+  }
+
+  async function refineWithTerrain() {
+    const photos = [...photosById.values()].filter(p => p.lat != null && p.relAlt != null);
+    if (!photos.length) {
+      alert('No photos with both GPS and relative altitude data — nothing to refine.');
+      return;
+    }
+    refineBtn.disabled = true;
+    const original = refineBtn.textContent;
+    const log = (msg) => { refineBtn.textContent = msg; console.log('[refineWithTerrain]', msg); };
+    log('Fetching elevations…');
+
+    let elevations = {};
+    let provider = null;
+    let error1 = null, error2 = null;
+    try {
+      elevations = await fetchElevationsOpenTopo(photos, log);
+      provider = 'OpenTopoData (SRTM 30 m)';
+    } catch (err) {
+      error1 = err;
+      console.warn('[refineWithTerrain] OpenTopoData failed:', err);
+      try {
+        log('OpenTopoData failed — trying USGS…');
+        elevations = await fetchElevationsUsgs(photos, log);
+        provider = 'USGS EPQS (US only)';
+      } catch (err2) {
+        error2 = err2;
+        console.warn('[refineWithTerrain] USGS EPQS failed:', err2);
+      }
+    }
+
+    const gotCount = Object.keys(elevations).length;
+    if (gotCount === 0) {
+      const msg1 = error1 ? `\n• OpenTopoData: ${error1.message}` : '';
+      const msg2 = error2 ? `\n• USGS EPQS: ${error2.message}` : '';
+      alert(
+        `Terrain refinement could not fetch any elevations.${msg1}${msg2}\n\n` +
+        `Common causes:\n` +
+        `  • You're offline.\n` +
+        `  • Your network blocks api.opentopodata.org and epqs.nationalmap.gov.\n` +
+        `  • The app was opened via file:// and a strict browser is rejecting the request.\n\n` +
+        `Open the browser's developer console for the full error. The app will keep using takeoff-relative altitudes.`
+      );
+      refineBtn.textContent = original;
+      refineBtn.disabled = photosById.size === 0;
+      return;
+    }
+
+    // Use the photo with the lowest relAlt as the takeoff reference.
+    const takeoffPhoto = photos.reduce((min, p) =>
+      (!min || p.relAlt < min.relAlt) ? p : min, null);
+    const takeoffElev = takeoffPhoto != null ? elevations[takeoffPhoto.id] : null;
+
+    let adjusted = 0;
+    const elevs = [];
+    for (const p of photos) {
+      const e = elevations[p.id];
+      if (e == null || takeoffElev == null) continue;
+      p.groundElev = e;
+      p.terrainHeight = p.relAlt - (e - takeoffElev);
+      elevs.push(e);
+      adjusted++;
+      // Refresh the popup content so the new fields show up next time it opens
+      if (p.marker) p.marker.setPopupContent(popupHtml(p));
+    }
+    const minE = elevs.length ? Math.min(...elevs).toFixed(1) : '—';
+    const maxE = elevs.length ? Math.max(...elevs).toFixed(1) : '—';
+    const range = elevs.length ? (Math.max(...elevs) - Math.min(...elevs)).toFixed(1) : '—';
+
+    refineBtn.textContent = `Refined ✓ (${adjusted})`;
+    setTimeout(() => { refineBtn.textContent = original; refineBtn.disabled = false; }, 4000);
+
+    if (currentFootprint) {
+      const sel = document.querySelector('.photo-item.active');
+      if (sel) showFootprintFor(photosById.get(Number(sel.dataset.id)));
+    }
+    if (allFootprintsVisible) rebuildAllFootprintsLayer();
+    refreshStats();
+
+    // Loud-and-clear success report so flat-terrain results don't feel like
+    // the feature did nothing.
+    setTimeout(() => alert(
+      `Terrain refinement complete.\n\n` +
+      `Provider:        ${provider}\n` +
+      `Photos refined:  ${adjusted} of ${photos.length}\n` +
+      `Takeoff ground:  ${takeoffElev != null ? takeoffElev.toFixed(1) + ' m above MSL' : 'unknown'}\n` +
+      `Ground range:    ${minE} – ${maxE} m  (${range} m of relief)\n\n` +
+      `Footprints have been recomputed using these ground elevations. ` +
+      (parseFloat(range) < 1 ? 'On flat ground like this, footprint sizes will be virtually identical to the takeoff-relative version — that\'s correct, not a bug.' : 'Click a photo to see the new dimensions.')
+    ), 50);
+  }
+
+  // ---------- mission detection (re-grouping) ----------
+
+  /**
+   * Reassign each photo's projectName to a detected-mission label, using
+   * time-gap clustering. A new mission starts whenever consecutive photos
+   * (sorted by datetime) are more than `timeGapMin` minutes apart, or more
+   * than `distGapM` metres apart. Photos without datetime go into "Undated".
+   */
+  function detectMissionAssignments(timeGapMin, distGapM) {
+    const all = [...photosById.values()];
+    const dated = all.filter(p => p.dateTime).sort((a, b) =>
+      Date.parse(a.dateTime) - Date.parse(b.dateTime));
+    const undated = all.filter(p => !p.dateTime);
+    const missions = [];
+    let current = null;
+    for (const p of dated) {
+      if (!current) { current = [p]; continue; }
+      const last = current[current.length - 1];
+      const dt = (Date.parse(p.dateTime) - Date.parse(last.dateTime)) / 60000;
+      let dx = 0;
+      if (last.lat != null && p.lat != null) dx = haversine([last.lat, last.lon], [p.lat, p.lon]);
+      if (dt > timeGapMin || dx > distGapM) { missions.push(current); current = [p]; }
+      else current.push(p);
+    }
+    if (current) missions.push(current);
+
+    const assign = new Map();
+    missions.forEach((m, i) => {
+      const ts = new Date(m[0].dateTime);
+      const label = `Mission ${i + 1} · ${ts.toISOString().slice(0, 16).replace('T', ' ')}`;
+      for (const p of m) assign.set(p.id, label);
+    });
+    for (const p of undated) assign.set(p.id, 'Undated');
+    return assign;
+  }
+
+  /**
+   * Rebuild project clusters/paths/sidebar from the photos in photosById.
+   * Each photo's projectName field is treated as the new project. Markers
+   * are moved between clusters as needed; icons are restyled to match new
+   * project colors; popups are re-rendered (they show the project label).
+   */
+  function rebuildFromCurrentProjectNames() {
+    const all = [...photosById.values()];
+
+    // Remember current visible/expanded state per project so we can preserve
+    // user choices through re-grouping where possible.
+    const prevState = new Map();
+    for (const proj of projects.values()) {
+      prevState.set(proj.name, { visible: proj.visible, expanded: proj.expanded });
+    }
+
+    // Tear down old project containers (clusters/paths) from the map.
+    for (const proj of projects.values()) {
+      map.removeLayer(proj.cluster);
+      if (proj.path) map.removeLayer(proj.path);
+    }
+    projects.clear();
+    clearFootprint();
+    allFootprintsLayer.clearLayers();
+
+    // Recreate projects and reattach existing markers under their new homes.
+    for (const p of all) {
+      const proj = getOrCreateProject(p.projectName);
+      // Carry over visibility if we've seen this project name before.
+      if (prevState.has(proj.name) && proj.photos.length === 0) {
+        proj.visible = prevState.get(proj.name).visible;
+        proj.expanded = prevState.get(proj.name).expanded;
+        if (!proj.visible) map.removeLayer(proj.cluster);
+      }
+      proj.photos.push(p);
+      if (p.marker) {
+        p.marker.setIcon(buildIcon(p, proj.color));
+        p.marker.setPopupContent(popupHtml(p));
+        proj.cluster.addLayer(p.marker);
+      }
+    }
+
+    // Sort each project by time and rebuild its flight-path polyline.
+    for (const proj of projects.values()) {
+      proj.photos.sort((a, b) => {
+        const ta = a.dateTime ? Date.parse(a.dateTime) : Number.MAX_SAFE_INTEGER;
+        const tb = b.dateTime ? Date.parse(b.dateTime) : Number.MAX_SAFE_INTEGER;
+        return ta - tb || a.name.localeCompare(b.name);
+      });
+      rebuildPath(proj);
+    }
+
+    refreshList();
+    updateStats();
+    refreshStats();
+    buildTimeline();
+    if (allFootprintsVisible) rebuildAllFootprintsLayer();
+  }
+
+  function applyMissionGrouping() {
+    const assign = detectMissionAssignments(missionParams.timeGapMin, missionParams.distGapM);
+    for (const p of photosById.values()) {
+      if (assign.has(p.id)) p.projectName = assign.get(p.id);
+    }
+    groupingMode = 'mission';
+    rebuildFromCurrentProjectNames();
+  }
+
+  function applyFolderGrouping() {
+    for (const p of photosById.values()) {
+      p.projectName = p.originalProjectName || 'Loose files';
+    }
+    groupingMode = 'folder';
+    rebuildFromCurrentProjectNames();
+  }
+
+  function applySensorGrouping() {
+    // Bucket each photo by sensorType ('RGB' / 'Multispectral' / 'Thermal' /
+    // 'Unknown'). The project name *is* the sensor type, which makes the
+    // sidebar color swatches and the per-project flight paths immediately
+    // meaningful — multispectral files get a different color from RGB.
+    for (const p of photosById.values()) {
+      p.projectName = p.sensorType || 'Unknown';
+    }
+    groupingMode = 'sensor';
+    rebuildFromCurrentProjectNames();
+  }
+
+  function applyCurrentGroupingMode() {
+    if (groupingMode === 'mission') applyMissionGrouping();
+    else if (groupingMode === 'sensor') applySensorGrouping();
+    // Folder mode is the default and gets set up during normal ingest, so
+    // we don't need to re-apply it explicitly.
+  }
+
+  function updateStats() {
+    const total = photosById.size;
+    const withGps = [...photosById.values()].filter(p => p.lat != null).length;
+    const projCount = projects.size;
+    stats.innerHTML = `<b>${total}</b> photo${total !== 1 ? 's' : ''} · <b>${withGps}</b> with GPS · <b>${projCount}</b> project${projCount !== 1 ? 's' : ''}`;
+  }
+
+  // ---------- toolbar ----------
+  fitBtn.addEventListener('click', autoFitToPhotos);
+
+  pathsBtn.addEventListener('click', () => {
+    pathsVisible = !pathsVisible;
+    for (const proj of projects.values()) {
+      if (!proj.path) continue;
+      if (pathsVisible && proj.visible) proj.path.addTo(map);
+      else map.removeLayer(proj.path);
+    }
+    pathsBtn.textContent = pathsVisible ? 'Hide paths' : 'Show paths';
+    lsSet('pathsVisible', pathsVisible);
+  });
+
+  footprintBtn.addEventListener('click', () => {
+    footprintsEnabled = !footprintsEnabled;
+    if (!footprintsEnabled) clearFootprint();
+    footprintBtn.textContent = footprintsEnabled ? 'Hide footprints' : 'Show footprints';
+    lsSet('footprintsEnabled', footprintsEnabled);
+  });
+
+  allFootBtn.addEventListener('click', () => setAllFootprintsVisible(!allFootprintsVisible));
+
+  missionBtn.addEventListener('click', () => {
+    const tRaw = prompt(
+      'Detect missions:\n\nMaximum gap between consecutive photos in MINUTES before splitting into a new mission.\n(Drones typically pause for battery swaps; 10 min is a reasonable default.)',
+      String(missionParams.timeGapMin));
+    if (tRaw == null) return;
+    const t = parseFloat(tRaw);
+    if (!Number.isFinite(t) || t <= 0) { alert('Invalid time gap.'); return; }
+    const dRaw = prompt(
+      'Maximum jump between consecutive photos in METRES before splitting.\n(Drones don\'t teleport; 500 m catches dataset boundaries without splitting a single grid flight.)',
+      String(missionParams.distGapM));
+    if (dRaw == null) return;
+    const d = parseFloat(dRaw);
+    if (!Number.isFinite(d) || d < 0) { alert('Invalid distance gap.'); return; }
+    missionParams.timeGapMin = t;
+    missionParams.distGapM = d;
+    applyMissionGrouping();
+    const count = projects.size;
+    missionBtn.textContent = `Detect missions (${count})`;
+    restoreFolderBtn.disabled = false;
+    lsSet('groupingMode', 'mission');
+    lsSet('missionParams', missionParams);
+  });
+
+  sensorBtn.addEventListener('click', () => {
+    applySensorGrouping();
+    const counts = {};
+    for (const proj of projects.values()) counts[proj.name] = proj.photos.length;
+    const summary = Object.entries(counts)
+      .map(([k, v]) => `${k}: ${v}`).join(', ');
+    sensorBtn.textContent = `Sensors (${projects.size})`;
+    restoreFolderBtn.disabled = false;
+    lsSet('groupingMode', 'sensor');
+    setTimeout(() => alert(`Grouped by sensor type:\n\n${summary}`), 30);
+  });
+
+  restoreFolderBtn.addEventListener('click', () => {
+    applyFolderGrouping();
+    missionBtn.textContent = 'Detect missions';
+    sensorBtn.textContent = 'Group by sensor';
+    restoreFolderBtn.disabled = true;
+    lsSet('groupingMode', 'folder');
+  });
+
+  refineBtn.addEventListener('click', () => { refineWithTerrain(); });
+
+  geojsonBtn.addEventListener('click', exportGeoJSON);
+
+  // ---------- Write sensor folders (File System Access API) ----------
+  // Chrome/Edge expose window.showDirectoryPicker for read-write folder access.
+  // We use it to drop a copy of each loaded photo into a sensor-named
+  // subfolder under a directory the user picks. Works only for photos uploaded
+  // directly (those have File refs); index.json-loaded photos only have
+  // thumbnails, not the original bytes.
+  async function writeSensorFolders() {
+    if (typeof window.showDirectoryPicker !== 'function') {
+      alert(
+        "Your browser doesn't support writing to folders directly.\n\n" +
+        "Use Chrome or Edge for the in-app sorter, or run the included " +
+        "sort_by_sensor.py script:\n\n" +
+        "    python3 sort_by_sensor.py /path/to/your/photos\n\n" +
+        "It does the same job from the command line."
+      );
+      return;
+    }
+    const items = [];
+    for (const [id, p] of photosById) {
+      const file = originalFiles.get(id);
+      if (file) items.push({ p, file });
+    }
+    if (!items.length) {
+      alert(
+        "No original photo files are available to write.\n\n" +
+        "This button works for photos you uploaded directly (drag-drop or " +
+        "Choose folder). Photos from an index.json — including the sample " +
+        "dataset — only carry embedded thumbnails; the original files aren't " +
+        "in the app, so they can't be written out."
+      );
+      return;
+    }
+    let rootHandle;
+    try {
+      rootHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
+    } catch (err) {
+      return;  // user cancelled the picker
+    }
+    writeSensorBtn.disabled = true;
+    const orig = writeSensorBtn.textContent;
+    const byType = {};
+    for (const it of items) {
+      const t = it.p.sensorType || 'Unknown';
+      (byType[t] ||= []).push(it);
+    }
+    let written = 0, errors = 0;
+    for (const [type, group] of Object.entries(byType)) {
+      let sub;
+      try {
+        sub = await rootHandle.getDirectoryHandle(type, { create: true });
+      } catch (e) {
+        console.error('Could not create folder', type, e);
+        errors += group.length;
+        continue;
+      }
+      for (const { p, file } of group) {
+        try {
+          const fh = await sub.getFileHandle(p.name, { create: true });
+          const w = await fh.createWritable();
+          await w.write(file);
+          await w.close();
+          written++;
+          writeSensorBtn.textContent = `Writing… ${written}/${items.length}`;
+        } catch (e) {
+          console.error('Skip', p.name, e);
+          errors++;
+        }
+      }
+    }
+    writeSensorBtn.textContent = `Wrote ${written}`;
+    setTimeout(() => { writeSensorBtn.textContent = orig; writeSensorBtn.disabled = items.length === 0; }, 3500);
+    const summary = Object.entries(byType)
+      .map(([t, a]) => `  ${t}: ${a.length}`).join('\n');
+    alert(
+      `Wrote ${written} files to the folder you selected.` +
+      (errors ? `\n${errors} errors (see browser console for details).` : '') +
+      `\n\nBreakdown by sensor type:\n${summary}` +
+      `\n\nOriginal photos are unchanged — these are copies.`
+    );
+  }
+  writeSensorBtn.addEventListener('click', writeSensorFolders);
+
+  // Keyboard shortcut: Cmd/Ctrl + Shift + Delete clears all photos.
+  // Guarded by the same confirm dialog as the button so accidental keypress
+  // can't wipe a session.
+  document.addEventListener('keydown', e => {
+    if ((e.metaKey || e.ctrlKey) && e.shiftKey
+        && (e.key === 'Delete' || e.key === 'Backspace')) {
+      if (clearBtn.disabled) return;
+      e.preventDefault();
+      clearBtn.click();
+    }
+  });
+
+  clearBtn.addEventListener('click', () => {
+    if (!confirm('Clear all loaded photos? (Original files are not touched.)')) return;
+    clearFootprint();
+    allFootprintsLayer.clearLayers();
+    for (const proj of projects.values()) {
+      map.removeLayer(proj.cluster);
+      if (proj.path) map.removeLayer(proj.path);
+    }
+    projects.clear();
+    photosById.clear();
+    originalFiles.clear();
+    nextId = 0;
+    refreshList();
+    updateStats();
+    refreshStats();
+    buildTimeline();
+    fitBtn.disabled = true;
+    pathsBtn.disabled = true;
+    allFootBtn.disabled = true;
+    refineBtn.disabled = true;
+    missionBtn.disabled = true;
+    missionBtn.textContent = 'Detect missions';
+    sensorBtn.disabled = true;
+    sensorBtn.textContent = 'Group by sensor';
+    restoreFolderBtn.disabled = true;
+    clearBtn.disabled = true;
+    exportBtn.disabled = true;
+    geojsonBtn.disabled = true;
+    writeSensorBtn.disabled = true;
+    stats.textContent = 'No photos loaded.';
+    map.setView([20, 0], 2);
+  });
+
+  exportBtn.addEventListener('click', () => {
+    const rows = [[
+      'project','filename','latitude','longitude',
+      'absolute_altitude_m','relative_altitude_m',
+      'datetime','make','model'
+    ]];
+    for (const proj of projects.values()) {
+      proj.photos.forEach(p => rows.push([
+        proj.name, p.name, p.lat ?? '', p.lon ?? '',
+        p.absAlt ?? '', p.relAlt ?? '',
+        p.dateTime || '', p.make || '', p.model || ''
+      ]));
+    }
+    const csv = rows.map(r => r.map(v => {
+      const s = String(v);
+      return /[",\n]/.test(s) ? '"' + s.replace(/"/g,'""') + '"' : s;
+    }).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'dronedb_export.csv'; a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  });
+
+  function escapeHtml(s) {
+    return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  // ---------- apply persisted state on startup ----------
+  (function applyPersistedState() {
+    // Basemap
+    const baseLayerMap = {
+      'Streets (OSM)': osmLayer,
+      'Satellite (Esri)': satLayer,
+      'Topo (USGS)': usgsTopoLayer
+    };
+    const savedBase = lsGet('basemap', null);
+    if (savedBase && baseLayerMap[savedBase] && savedBase !== 'Streets (OSM)') {
+      map.removeLayer(osmLayer);
+      baseLayerMap[savedBase].addTo(map);
+    }
+    map.on('baselayerchange', e => lsSet('basemap', e.name));
+
+    // Footprints toggle
+    const fpEnabled = lsGet('footprintsEnabled', true);
+    if (!fpEnabled) {
+      footprintsEnabled = false;
+      footprintBtn.textContent = 'Show footprints';
+    }
+    // Paths toggle
+    const pVis = lsGet('pathsVisible', true);
+    if (!pVis) {
+      pathsVisible = false;
+      pathsBtn.textContent = 'Show paths';
+    }
+    // All footprints toggle
+    const allFp = lsGet('allFootprints', false);
+    if (allFp) {
+      // Defer until photos load (set the flag now so finalizeIngest renders)
+      allFootprintsVisible = true;
+      allFootBtn.textContent = 'Hide all footprints';
+      allFootprintsLayer.addTo(map);
+    }
+    // GPS-only filter
+    const gpsO = lsGet('gpsOnly', false);
+    if (gpsO) { gpsOnly = true; gpsOnlyChk.checked = true; }
+    // Stats panel collapsed
+    const statsC = lsGet('statsCollapsed', true);
+    statsPanel.classList.toggle('collapsed', !!statsC);
+    // Grouping mode + saved mission params (re-applied in finalizeIngest)
+    const savedMode = lsGet('groupingMode', 'folder');
+    const savedParams = lsGet('missionParams', null);
+    if (savedParams && typeof savedParams === 'object') {
+      if (Number.isFinite(savedParams.timeGapMin)) missionParams.timeGapMin = savedParams.timeGapMin;
+      if (Number.isFinite(savedParams.distGapM))  missionParams.distGapM  = savedParams.distGapM;
+    }
+    if (savedMode === 'mission') groupingMode = 'mission';
+    else if (savedMode === 'sensor') groupingMode = 'sensor';
+  })();
+})();
+</script>
+</body>
+</html>

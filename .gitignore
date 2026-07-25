@@ -1,0 +1,37 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# R (if used alongside)
+.Rhistory
+.RData
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+
+# Node (only used at build time, not runtime)
+node_modules/
+package-lock.json
+
+# Build scratch
+/tmp/
+build/
+
+# Local-only working folders
+archive/              # older bundles kept for personal reference
+dist/drone-mission-review/    # stray empty dir from an early zip step
+
+# Ship only the current student zip; keep older ones out of the repo
+dist/drone-mission-review_v*.zip
+!dist/drone-mission-review_v16.zip
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+*.swo

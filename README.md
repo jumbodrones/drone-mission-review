@@ -13,11 +13,18 @@ HTML file with Leaflet, MarkerCluster, and exifr inlined.
 
 ## Try it
 
-- **Download**: [dist/drone-mission-review-standalone.html](dist/drone-mission-review-standalone.html)
-- **Double-click** to open in any modern browser (Chrome, Firefox, Safari, Edge).
+**Open the app:** <https://jumbodrones.github.io/drone-mission-review/>
+
+- Works in any modern browser (Chrome, Firefox, Safari, Edge). Nothing to
+  install, and your photos stay on your computer.
 - Click **Load sample dataset** in the toolbar to explore with 43 sample photos
   from a Mavic 3 mapping flight.
 - Then drop your own JPGs on the sidebar and go.
+- For **Write sensor folders**, use Chrome or Edge.
+
+**Working offline?** Download
+[drone-mission-review_v17.zip](https://github.com/jumbodrones/drone-mission-review/raw/main/dist/drone-mission-review_v17.zip),
+unzip it, and double-click `drone-mission-review.html`.
 
 ## Features
 

@@ -23,8 +23,10 @@ package-lock.json
 build/
 
 # Local-only working folders
-archive/              # older bundles kept for personal reference
-dist/drone-mission-review/    # stray empty dir from an early zip step
+# older bundles kept for personal reference
+archive/
+# stray dir from an early zip step
+dist/drone-mission-review/
 
 # Ship only the current student zip; keep older ones out of the repo
 dist/drone-mission-review_v*.zip

@@ -30,7 +30,7 @@ dist/drone-mission-review/
 
 # Ship only the current student zip; keep older ones out of the repo
 dist/drone-mission-review_v*.zip
-!dist/drone-mission-review_v16.zip
+!dist/drone-mission-review_v17.zip
 
 # Editor / OS
 .vscode/

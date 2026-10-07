@@ -134,7 +134,8 @@ Netlify tier serves 100 GB / month, enough for 750,000 loads.
 
 Once loaded, the app requests tiles from three third-party providers:
 
-- **CARTO Voyager** (streets) — free for embedded / non-commercial use.
+- **Esri World Street Map** (streets) — free for educational and most
+  non-commercial use; no API key needed.
 - **Esri World Imagery** (satellite) — free for educational and most
   non-commercial use; no API key needed.
 - **USGS National Map** (topo) — free, US-focused.

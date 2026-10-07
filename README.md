@@ -23,7 +23,7 @@ HTML file with Leaflet, MarkerCluster, and exifr inlined.
 
 **Map and visualisation**
 
-- Three switchable basemaps: streets (CARTO Voyager), satellite (Esri World
+- Three switchable basemaps: streets (Esri World Street Map), satellite (Esri World
   Imagery), and topographic (USGS National Map)
 - Auto-zoom to the extent of loaded photos
 - Marker clustering that breaks apart into individual direction-arrow markers

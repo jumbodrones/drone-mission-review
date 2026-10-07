@@ -1026,17 +1026,17 @@ svg.leaflet-image-layer.leaflet-interactive path {
   // ---------- map + basemaps ----------
   const map = L.map('map', { zoomControl: true }).setView([20, 0], 2);
 
-  // Streets: CARTO Voyager tiles (OSM data, CARTO-styled). We use CARTO rather
-  // than tile.openstreetmap.org because OSM's tile usage policy explicitly
-  // forbids embedded/redistributed apps and they hard-block clients that hit
-  // their servers from such apps. CARTO is free, no API key, and explicitly
-  // permits embedded use. https://github.com/CartoDB/basemap-styles
+  // Streets: Esri World Street Map. We previously used CARTO Voyager, but CARTO
+  // now requires an API key and stamps "API KEY REQUIRED" over keyless tiles.
+  // tile.openstreetmap.org is not an option either: OSM's tile usage policy
+  // forbids embedded/redistributed apps. Esri's street tiles need no key and
+  // come from the same server as the satellite layer below.
+  // https://www.arcgis.com/home/item.html?id=3b93337983e9436f8db950e38a8629af
   const osmLayer = L.tileLayer(
-    'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
+    'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
     {
-      subdomains: 'abcd',
       maxZoom: 19,
-      attribution: '© OpenStreetMap contributors © CARTO'
+      attribution: 'Tiles © Esri — Source: Esri, HERE, Garmin, USGS, © OpenStreetMap contributors, and the GIS User Community'
     }
   );
 
@@ -1067,7 +1067,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
 
   L.control.layers(
     {
-      'Streets (OSM)': osmLayer,
+      'Streets (Esri)': osmLayer,
       'Satellite (Esri)': satLayer,
       'Topo (USGS)': usgsTopoLayer
     },
@@ -1486,7 +1486,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
     // Tighter padding for a single point so we don't zoom past the map's
     // maximum and end up at a useless zoom level.
     const padding = coords.length === 1 ? [60, 60] : [40, 40];
-    // maxZoom 19 matches what CARTO Voyager and Esri Imagery actually serve;
+    // maxZoom 19 matches what Esri Streets and Esri Imagery actually serve;
     // small dense datasets like a tight mapping flight will land at 19 so
     // students see individual arrows rather than just a cluster bubble.
     map.fitBounds(L.latLngBounds(coords), { padding, maxZoom: 19 });
@@ -2513,21 +2513,31 @@ svg.leaflet-image-layer.leaflet-interactive path {
       'absolute_altitude_m','relative_altitude_m',
       'datetime','make','model'
     ]];
+    // List every photo oldest to newest by capture time, across all projects.
+    // Photos without a capture time go last; ties are broken by filename.
+    const all = [];
     for (const proj of projects.values()) {
-      proj.photos.forEach(p => rows.push([
-        proj.name, p.name, p.lat ?? '', p.lon ?? '',
-        p.absAlt ?? '', p.relAlt ?? '',
-        p.dateTime || '', p.make || '', p.model || ''
-      ]));
+      proj.photos.forEach(p => all.push({ proj, p }));
     }
+    const t = x => { const v = x.p.dateTime ? Date.parse(x.p.dateTime) : NaN; return isNaN(v) ? Infinity : v; };
+    all.sort((a, b) => (t(a) - t(b)) || String(a.p.name).localeCompare(String(b.p.name), undefined, { numeric: true }));
+    all.forEach(({ proj, p }) => rows.push([
+      proj.name, p.name, p.lat ?? '', p.lon ?? '',
+      p.absAlt ?? '', p.relAlt ?? '',
+      p.dateTime || '', p.make || '', p.model || ''
+    ]));
     const csv = rows.map(r => r.map(v => {
       const s = String(v);
       return /[",\n]/.test(s) ? '"' + s.replace(/"/g,'""') + '"' : s;
     }).join(',')).join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
+    // Prefix a UTF-8 byte-order mark so Excel reads the file as UTF-8.
+    // Without it, Excel shows characters like the '·' in mission names as '¬∑'.
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url; a.download = 'dronedb_export.csv'; a.click();
+    const d = new Date();
+    const ymd = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    a.href = url; a.download = 'Flights_' + ymd + '.csv'; a.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   });
 
@@ -2539,12 +2549,12 @@ svg.leaflet-image-layer.leaflet-interactive path {
   (function applyPersistedState() {
     // Basemap
     const baseLayerMap = {
-      'Streets (OSM)': osmLayer,
+      'Streets (Esri)': osmLayer,
       'Satellite (Esri)': satLayer,
       'Topo (USGS)': usgsTopoLayer
     };
     const savedBase = lsGet('basemap', null);
-    if (savedBase && baseLayerMap[savedBase] && savedBase !== 'Streets (OSM)') {
+    if (savedBase && baseLayerMap[savedBase] && savedBase !== 'Streets (Esri)') {
       map.removeLayer(osmLayer);
       baseLayerMap[savedBase].addTo(map);
     }

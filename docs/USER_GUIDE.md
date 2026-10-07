@@ -36,12 +36,13 @@ For every JPG with GPS EXIF tags, you get:
   oblique photos are skipped because flat-ground projection doesn't apply.
 
 - A basemap switcher in the upper-right lets you flip between three styles:
-  a street view (CARTO Voyager, which renders OpenStreetMap data),
+  a street view (Esri World Street Map),
   satellite imagery (Esri World Imagery), and topographic maps
   (USGS National Map — best for terrain context). You can also toggle a
   place-and-road labels overlay on top of the satellite view.
 
 Use **Export CSV** to dump the extracted metadata for downstream analysis.
+The file is named `Flights_YYYY-MM-DD.csv`, using the date you export it.
 **Export GeoJSON** writes a `.geojson` file containing both photo points and
 footprint polygons, ready to drag straight into QGIS or ArcGIS.
 

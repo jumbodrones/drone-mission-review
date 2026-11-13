@@ -930,6 +930,23 @@ svg.leaflet-image-layer.leaflet-interactive path {
   #timeline button:hover { background: var(--panel-3); }
   #timeline input[type=range] { flex: 1; accent-color: var(--accent); }
   #timeline .tl-label { font-family: ui-monospace, monospace; color: var(--muted); min-width: 140px; }
+
+  /* Map selection (box select) */
+  .sel-panel {
+    background: rgba(15, 23, 42, 0.92); border: 1px solid var(--panel-2); border-radius: 6px;
+    padding: 6px; width: 178px; color: var(--text); font-size: 12px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+  }
+  .sel-panel button { display: block; width: 100%; margin: 0 0 4px; flex: none; text-align: left; }
+  .sel-panel button:last-child { margin-bottom: 0; }
+  .sel-panel button.on { background: #facc15; color: #000; font-weight: 700; }
+  .sel-panel .sel-count { margin: 2px 2px 6px; color: var(--muted); }
+  .sel-panel .sel-count b { color: #facc15; }
+  .sel-panel .sel-hint { display: none; margin: 0 2px 6px; color: var(--muted); font-size: 11px; line-height: 1.35; }
+  #map.box-select-mode .sel-panel .sel-hint { display: block; }
+  #map.box-select-mode, #map.box-select-mode .leaflet-grab { cursor: crosshair; }
+  .leaflet-marker-icon.sel { filter: drop-shadow(0 0 2px #facc15) drop-shadow(0 0 4px #facc15); z-index: 1000 !important; }
+  .photo-item.selected { box-shadow: inset 3px 0 0 #facc15; }
 </style>
 </head>
 <body>
@@ -939,6 +956,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
       <h1>Drone Mission Review</h1>
       <p>Drop photos or a folder to map them by GPS, grouped into projects with flight paths.</p>
       <p class="tip">Switch basemap (Streets / Satellite / Topo) in the top-right of the map.</p>
+      <p class="tip">Use ▭ Box select (top-left of map, or press B) to pick photos for CSV export or copying to a new folder.</p>
     </div>
 
     <div class="input-row">
@@ -1099,6 +1117,9 @@ svg.leaflet-image-layer.leaflet-interactive path {
   // the active mode so the sidebar stays consistent.
   let groupingMode = 'folder';
   let missionParams = { timeGapMin: 10, distGapM: 500 };
+  // Map selection: ids of photos picked with the box-select tool.
+  const selectedIds = new Set();
+  let boxMode = false;
 
   // ---------- persistent state ----------
   const LS_PREFIX = 'drone-mission-review:';
@@ -1274,7 +1295,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
       gimbalYaw, gimbalPitch, gimbalRoll, flightYaw,
       focalLength, focal35, imgWidth, imgHeight,
       dateTime: dateTime ? new Date(dateTime).toISOString() : null,
-      make, model, bandName, sensorType, thumbUrl
+      make, model, bandName, sensorType, thumbUrl, relPath
     });
     if (id != null) originalFiles.set(id, photoFile);
   }
@@ -1379,10 +1400,15 @@ svg.leaflet-image-layer.leaflet-interactive path {
     if (projects.has(name)) return projects.get(name);
     const color = PALETTE[projects.size % PALETTE.length];
     const cluster = L.markerClusterGroup({
-      iconCreateFunction: c => L.divIcon({
-        html: `<div style="background:${color};color:#000;font-weight:700;border-radius:50%;width:34px;height:34px;line-height:34px;text-align:center;border:2px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,0.35);">${c.getChildCount()}</div>`,
-        className: '', iconSize: [34, 34]
-      }),
+      iconCreateFunction: c => {
+        const nSel = selectedIds.size
+          ? c.getAllChildMarkers().filter(m => m._photo && selectedIds.has(m._photo.id)).length : 0;
+        const ring = nSel ? 'border:3px solid #facc15;box-shadow:0 0 6px 2px #facc15;' : 'border:2px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,0.35);';
+        return L.divIcon({
+          html: `<div title="${nSel ? nSel + ' selected' : ''}" style="background:${color};color:#000;font-weight:700;border-radius:50%;width:34px;height:34px;line-height:${nSel ? 28 : 30}px;text-align:center;${ring}">${c.getChildCount()}</div>`,
+          className: '', iconSize: [34, 34]
+        });
+      },
       // Smaller cluster radius means markers break apart at lower zoom levels.
       maxClusterRadius: 30,
       // Past zoom 18, never cluster — show every photo as its own arrow.
@@ -1421,6 +1447,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
       model: rec.model,
       thumbUrl: rec.thumbUrl,
       projectName: rec.projectName,
+      relPath: rec.relPath || '',
       bandName: rec.bandName || '',
       sensorType: rec.sensorType || 'Unknown',
       // Remember the original folder so "Restore folders" can put it back
@@ -1432,7 +1459,15 @@ svg.leaflet-image-layer.leaflet-interactive path {
       const marker = L.marker([photo.lat, photo.lon], { icon: buildIcon(photo, proj.color) });
       marker.bindPopup(popupHtml(photo));
       marker._photo = photo;  // for the lightbox popupopen handler
-      marker.on('click', () => selectPhoto(id));
+      marker.on('click', e => {
+        const oe = e.originalEvent;
+        if (boxMode || (oe && (oe.metaKey || oe.ctrlKey))) {
+          marker.closePopup();
+          toggleSelected(id);
+          return;
+        }
+        selectPhoto(id);
+      });
       proj.cluster.addLayer(marker);
       photo.marker = marker;
     }
@@ -1623,7 +1658,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
     container.innerHTML = '';
     proj.photos.filter(passesFilter).forEach(p => {
       const div = document.createElement('div');
-      div.className = 'photo-item';
+      div.className = 'photo-item' + (selectedIds.has(p.id) ? ' selected' : '');
       div.dataset.id = p.id;
       div.innerHTML = `
         <img src="${p.thumbUrl || ''}" alt="">
@@ -1636,7 +1671,10 @@ svg.leaflet-image-layer.leaflet-interactive path {
           </div>
         </div>
       `;
-      div.addEventListener('click', () => selectPhoto(p.id));
+      div.addEventListener('click', e => {
+        if (e.metaKey || e.ctrlKey) { toggleSelected(p.id); return; }
+        selectPhoto(p.id);
+      });
       container.appendChild(div);
     });
   }
@@ -1661,9 +1699,11 @@ svg.leaflet-image-layer.leaflet-interactive path {
   function buildIcon(photo, color) {
     const yaw = photo.gimbalYaw != null ? photo.gimbalYaw
               : (photo.flightYaw != null ? photo.flightYaw : null);
+    const sel = selectedIds.has(photo.id);
+    photo._selShown = sel;
     if (yaw == null) {
       return L.divIcon({
-        className: 'dot',
+        className: 'dot' + (sel ? ' sel' : ''),
         html: `<div style="width:14px;height:14px;border-radius:50%;background:${color};border:2px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,0.35);"></div>`,
         iconSize: [14, 14], iconAnchor: [7, 7]
       });
@@ -1675,7 +1715,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
         <polygon points="0,-9 4,-2 -4,-2" fill="#fff" stroke="rgba(0,0,0,0.5)" stroke-width="0.5"/>
       </svg>`;
     return L.divIcon({
-      className: 'marker-arrow',
+      className: 'marker-arrow' + (sel ? ' sel' : ''),
       html: svg, iconSize: [22, 22], iconAnchor: [11, 11]
     });
   }
@@ -2485,6 +2525,9 @@ svg.leaflet-image-layer.leaflet-interactive path {
     projects.clear();
     photosById.clear();
     originalFiles.clear();
+    selectedIds.clear();
+    setBoxMode(false);
+    refreshSelectionUI();
     nextId = 0;
     refreshList();
     updateStats();
@@ -2526,20 +2569,288 @@ svg.leaflet-image-layer.leaflet-interactive path {
       p.absAlt ?? '', p.relAlt ?? '',
       p.dateTime || '', p.make || '', p.model || ''
     ]));
+    downloadCsv(rows, 'Flights_' + ymdStamp() + '.csv');
+  });
+
+  // ---------- CSV helpers ----------
+  function csvBlob(rows) {
     const csv = rows.map(r => r.map(v => {
       const s = String(v);
       return /[",\n]/.test(s) ? '"' + s.replace(/"/g,'""') + '"' : s;
     }).join(',')).join('\n');
     // Prefix a UTF-8 byte-order mark so Excel reads the file as UTF-8.
     // Without it, Excel shows characters like the '·' in mission names as '¬∑'.
-    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
+    return new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' });
+  }
+  function downloadCsv(rows, filename) {
+    const url = URL.createObjectURL(csvBlob(rows));
     const a = document.createElement('a');
-    const d = new Date();
-    const ymd = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
-    a.href = url; a.download = 'Flights_' + ymd + '.csv'; a.click();
+    a.href = url; a.download = filename; a.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+  function ymdStamp(withTime) {
+    const d = new Date(), z = n => String(n).padStart(2, '0');
+    const ymd = d.getFullYear() + '-' + z(d.getMonth() + 1) + '-' + z(d.getDate());
+    return withTime ? ymd + '_' + z(d.getHours()) + z(d.getMinutes()) : ymd;
+  }
+
+  // ---------- map selection: box select → CSV / copy to new folder ----------
+  // Turn on "Box select" (button at top-left of the map, or press B), then
+  // drag a rectangle. Plain drag replaces the selection, Shift+drag adds,
+  // Alt/Option+drag removes. Clicking a marker in box mode toggles it;
+  // Cmd/Ctrl+click on a marker or sidebar row toggles it at any time.
+  // Only photos in visible projects that pass the current filter are picked.
+  const SelectControl = L.Control.extend({
+    options: { position: 'topleft' },
+    onAdd() {
+      const div = L.DomUtil.create('div', 'sel-panel');
+      div.innerHTML = `
+        <button type="button" id="boxSelBtn" title="Drag a box on the map to select photos (shortcut: B, Esc to exit)">▭ Box select</button>
+        <div class="sel-hint">Drag on the map to select.<br>Shift = add · Alt/Option = remove<br>Click a marker to toggle it.</div>
+        <div class="sel-count" id="selCount">No photos selected</div>
+        <button type="button" id="selCsvBtn" disabled>Export selection CSV</button>
+        <button type="button" id="selCopyBtn" disabled title="Copy the selected original photos, plus a CSV, into a new folder (Chrome/Edge only). Originals are not moved or changed.">Copy to new folder…</button>
+        <button type="button" id="selClearBtn" disabled>Clear selection</button>`;
+      L.DomEvent.disableClickPropagation(div);
+      L.DomEvent.disableScrollPropagation(div);
+      return div;
+    }
   });
+  new SelectControl().addTo(map);
+  const boxSelBtn = document.getElementById('boxSelBtn');
+  const selCount = document.getElementById('selCount');
+  const selCsvBtn = document.getElementById('selCsvBtn');
+  const selCopyBtn = document.getElementById('selCopyBtn');
+  const selClearBtn = document.getElementById('selClearBtn');
+  const mapEl = map.getContainer();
+
+  function setBoxMode(on) {
+    boxMode = !!on;
+    boxSelBtn.classList.toggle('on', boxMode);
+    boxSelBtn.textContent = boxMode ? '▭ Box select: ON' : '▭ Box select';
+    mapEl.classList.toggle('box-select-mode', boxMode);
+    // Plain drag draws the box instead of panning; Shift+drag must not box-zoom.
+    if (boxMode) { map.dragging.disable(); map.boxZoom.disable(); }
+    else { map.dragging.enable(); map.boxZoom.enable(); }
+  }
+  boxSelBtn.addEventListener('click', () => setBoxMode(!boxMode));
+
+  document.addEventListener('keydown', e => {
+    const typing = e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable);
+    if (typing || e.metaKey || e.ctrlKey) return;
+    if (e.key === 'Escape' && boxMode && !lightbox.classList.contains('open')) setBoxMode(false);
+    else if ((e.key === 'b' || e.key === 'B') && !lightbox.classList.contains('open')) setBoxMode(!boxMode);
+  });
+
+  // ---- drawing the box ----
+  let boxDrag = null;  // { start: L.Point, op: 'replace'|'add'|'remove', rect: L.Rectangle|null }
+  function pointsToLatLngBounds(a, b) {
+    return L.latLngBounds(map.containerPointToLatLng(a), map.containerPointToLatLng(b));
+  }
+  mapEl.addEventListener('pointerdown', e => {
+    if (!boxMode || e.button !== 0) return;
+    if (e.target.closest('.leaflet-control, .leaflet-marker-icon, .leaflet-popup, #timeline')) return;
+    e.preventDefault();
+    boxDrag = {
+      start: map.mouseEventToContainerPoint(e),
+      op: e.altKey ? 'remove' : (e.shiftKey ? 'add' : 'replace'),
+      rect: null
+    };
+  });
+  window.addEventListener('pointermove', e => {
+    if (!boxDrag) return;
+    const cur = map.mouseEventToContainerPoint(e);
+    if (!boxDrag.rect) {
+      if (boxDrag.start.distanceTo(cur) < 4) return;  // ignore tiny jitters
+      boxDrag.rect = L.rectangle(pointsToLatLngBounds(boxDrag.start, cur), {
+        color: '#facc15', weight: 2, dashArray: '5 4', fillColor: '#facc15', fillOpacity: 0.1, interactive: false
+      }).addTo(map);
+    } else {
+      boxDrag.rect.setBounds(pointsToLatLngBounds(boxDrag.start, cur));
+    }
+  });
+  function endBoxDrag() {
+    if (!boxDrag) return;
+    const d = boxDrag; boxDrag = null;
+    if (!d.rect) {
+      // A plain click on empty map with no modifier clears the selection.
+      if (d.op === 'replace' && selectedIds.size) { selectedIds.clear(); refreshSelectionUI(); }
+      return;
+    }
+    const bounds = d.rect.getBounds();
+    map.removeLayer(d.rect);
+    applyBoxSelection(bounds, d.op);
+  }
+  window.addEventListener('pointerup', endBoxDrag);
+  window.addEventListener('pointercancel', endBoxDrag);
+
+  function applyBoxSelection(bounds, op) {
+    if (op === 'replace') selectedIds.clear();
+    for (const proj of projects.values()) {
+      if (!proj.visible) continue;
+      for (const p of proj.photos) {
+        if (p.lat == null || p.lon == null || !passesFilter(p)) continue;
+        if (!bounds.contains([p.lat, p.lon])) continue;
+        if (op === 'remove') selectedIds.delete(p.id); else selectedIds.add(p.id);
+      }
+    }
+    refreshSelectionUI();
+  }
+
+  function toggleSelected(id) {
+    if (selectedIds.has(id)) selectedIds.delete(id); else selectedIds.add(id);
+    refreshSelectionUI();
+  }
+
+  // Sync markers, clusters, sidebar rows and the panel with selectedIds.
+  function refreshSelectionUI() {
+    for (const id of [...selectedIds]) if (!photosById.has(id)) selectedIds.delete(id);
+    for (const proj of projects.values()) {
+      let changed = false;
+      for (const p of proj.photos) {
+        if (p.marker && p._selShown !== selectedIds.has(p.id)) {
+          p.marker.setIcon(buildIcon(p, proj.color));
+          changed = true;
+        }
+      }
+      if (changed) proj.cluster.refreshClusters();
+    }
+    document.querySelectorAll('.photo-item').forEach(el =>
+      el.classList.toggle('selected', selectedIds.has(Number(el.dataset.id)))
+    );
+    const n = selectedIds.size;
+    const noOrig = [...selectedIds].filter(id => !originalFiles.has(id)).length;
+    selCount.innerHTML = n
+      ? `<b>${n}</b> photo${n !== 1 ? 's' : ''} selected` +
+        (noOrig ? `<br><span title="Loaded from index.json: no original file in the app">${noOrig} without original file</span>` : '')
+      : 'No photos selected';
+    selCsvBtn.disabled = n === 0;
+    selCopyBtn.disabled = n === 0;
+    selClearBtn.disabled = n === 0;
+  }
+  selClearBtn.addEventListener('click', () => { selectedIds.clear(); refreshSelectionUI(); });
+
+  // Selected photos, oldest to newest (no-timestamp last, ties by filename).
+  function selectedPhotosSorted() {
+    const list = [...selectedIds].map(id => photosById.get(id)).filter(Boolean);
+    const t = p => { const v = p.dateTime ? Date.parse(p.dateTime) : NaN; return isNaN(v) ? Infinity : v; };
+    return list.sort((a, b) => (t(a) - t(b)) || String(a.name).localeCompare(String(b.name), undefined, { numeric: true }));
+  }
+
+  function selectionRows(copiedAs) {
+    const rows = [[
+      'project','filename','source_path','sensor_type','latitude','longitude',
+      'absolute_altitude_m','relative_altitude_m','gimbal_pitch_deg','gimbal_yaw_deg',
+      'datetime','make','model'
+    ].concat(copiedAs ? ['copied_as'] : [])];
+    selectedPhotosSorted().forEach(p => rows.push([
+      p.projectName, p.name, p.relPath || '', p.sensorType || '',
+      p.lat ?? '', p.lon ?? '', p.absAlt ?? '', p.relAlt ?? '',
+      p.gimbalPitch ?? '', p.gimbalYaw ?? '',
+      p.dateTime || '', p.make || '', p.model || ''
+    ].concat(copiedAs ? [copiedAs.get(p.id) || ''] : [])));
+    return rows;
+  }
+
+  selCsvBtn.addEventListener('click', () => {
+    if (!selectedIds.size) return;
+    downloadCsv(selectionRows(null), 'Selection_' + ymdStamp() + '.csv');
+  });
+
+  // ---- copy selected originals into a new folder ----
+  async function copySelectionToFolder() {
+    if (!selectedIds.size) return;
+    if (typeof window.showDirectoryPicker !== 'function') {
+      alert(
+        "Your browser can't write to folders directly.\n\n" +
+        "Open this app in Chrome or Edge to copy the selected photos.\n" +
+        "You can still use \"Export selection CSV\" here."
+      );
+      return;
+    }
+    const photos = selectedPhotosSorted();
+    const withFile = photos.filter(p => originalFiles.has(p.id));
+    if (!withFile.length) {
+      alert(
+        "None of the selected photos have their original files in the app.\n\n" +
+        "Copying works for photos you loaded with Choose photos / Choose folder / drag-drop. " +
+        "Photos from an index.json (including the sample dataset) carry only thumbnails."
+      );
+      return;
+    }
+    let folderName = prompt(
+      `Copy ${withFile.length} photo${withFile.length !== 1 ? 's' : ''} into a NEW folder.\n\n` +
+      'Name for the new folder (you will pick where it goes next):',
+      'Selection_' + ymdStamp(true)
+    );
+    if (folderName == null) return;
+    folderName = folderName.trim().replace(/[\\/:*?"<>|]/g, '_') || ('Selection_' + ymdStamp(true));
+
+    let parent;
+    try { parent = await window.showDirectoryPicker({ mode: 'readwrite' }); }
+    catch { return; }  // user cancelled
+
+    // Never write into an existing folder: add " (2)", " (3)", … if the name is taken.
+    let finalName = folderName, k = 2;
+    while (true) {
+      try { await parent.getDirectoryHandle(finalName); finalName = `${folderName} (${k++})`; }
+      catch { break; }
+    }
+    let outDir;
+    try { outDir = await parent.getDirectoryHandle(finalName, { create: true }); }
+    catch (e) { alert('Could not create the folder: ' + e.message); return; }
+
+    const orig = selCopyBtn.textContent;
+    selCopyBtn.disabled = true;
+    const used = new Set();
+    const copiedAs = new Map();
+    let written = 0, errors = 0;
+    for (const p of withFile) {
+      // Two flights can both have DJI_0001.JPG: keep every copy by suffixing duplicates.
+      let name = p.name;
+      if (used.has(name.toLowerCase())) {
+        const dot = name.lastIndexOf('.');
+        const stem = dot > 0 ? name.slice(0, dot) : name, ext = dot > 0 ? name.slice(dot) : '';
+        let i = 2;
+        while (used.has(`${stem}_${i}${ext}`.toLowerCase())) i++;
+        name = `${stem}_${i}${ext}`;
+      }
+      used.add(name.toLowerCase());
+      try {
+        const fh = await outDir.getFileHandle(name, { create: true });
+        const w = await fh.createWritable();
+        await w.write(originalFiles.get(p.id));
+        await w.close();
+        copiedAs.set(p.id, name);
+        written++;
+        selCopyBtn.textContent = `Copying… ${written}/${withFile.length}`;
+      } catch (e) {
+        console.error('Copy failed', p.name, e);
+        errors++;
+      }
+    }
+    // Write the selection CSV alongside the copies so the folder is self-describing.
+    let csvOk = true;
+    try {
+      const fh = await outDir.getFileHandle('selection.csv', { create: true });
+      const w = await fh.createWritable();
+      await w.write(csvBlob(selectionRows(copiedAs)));
+      await w.close();
+    } catch (e) { console.error('CSV write failed', e); csvOk = false; }
+
+    selCopyBtn.textContent = `Copied ${written}`;
+    setTimeout(() => { selCopyBtn.textContent = orig; selCopyBtn.disabled = selectedIds.size === 0; }, 3500);
+    const skipped = photos.length - withFile.length;
+    alert(
+      `Copied ${written} photo${written !== 1 ? 's' : ''} into "${finalName}".` +
+      (csvOk ? '\nAlso wrote selection.csv in that folder.' : '\nCould not write selection.csv (see browser console).') +
+      (errors ? `\n${errors} file(s) failed (see browser console).` : '') +
+      (skipped ? `\n${skipped} selected photo(s) had no original file (loaded from index.json) and were skipped.` : '') +
+      '\n\nOriginal photos are unchanged. These are copies.'
+    );
+  }
+  selCopyBtn.addEventListener('click', copySelectionToFolder);
+
 
   function escapeHtml(s) {
     return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
